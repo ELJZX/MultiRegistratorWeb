@@ -10,6 +10,9 @@
     const startInput = document.getElementById("period-start");
     const endInput = document.getElementById("period-end");
     const canvas = document.getElementById("chart-canvas");
+    const wrap = canvas.parentElement;
+    const bandEl = document.getElementById("chart-select-band");
+    const readoutEl = document.getElementById("chart-readout");
     const statusEl = document.getElementById("chart-status");
     const legendEl = document.getElementById("chart-legend");
     const periodEl = document.getElementById("chart-period");
@@ -24,10 +27,15 @@
         "#0891b2", "#db2777", "#65a30d", "#ca8a04", "#4f46e5"
     ];
 
+    const LIVE_PADDING = 0.2;
+    const TOP_PADDING = 0.2;
+
     let chart = null;
     let units = {};
     let liveTimer = null;
-    let lastPayload = null;
+    let userAdjustedX = false;
+    let activePoint = null;
+    let pointerDown = null;
 
     if (!window.Chart) {
         setStatus("Не удалось загрузить библиотеку графиков (Chart.js).", true);
@@ -45,7 +53,7 @@
 
     function toLocalInput(date) {
         return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) +
-            "T" + pad(date.getHours()) + ":" + pad(date.getMinutes());
+            "T" + pad(date.getHours()) + ":" + pad(date.getMinutes()) + ":" + pad(date.getSeconds());
     }
 
     function toIso(value) {
@@ -54,6 +62,23 @@
         }
         const parsed = new Date(value);
         return isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+    }
+
+    function formatTime(value) {
+        const date = value instanceof Date ? value : new Date(value);
+        if (isNaN(date.getTime())) {
+            return "—";
+        }
+        return date.toLocaleTimeString("ru-RU", { hour12: false });
+    }
+
+    function currentSpanMs() {
+        const startMs = startInput.value ? new Date(startInput.value).getTime() : NaN;
+        const endMs = endInput.value ? new Date(endInput.value).getTime() : NaN;
+        if (!isNaN(startMs) && !isNaN(endMs) && endMs > startMs) {
+            return endMs - startMs;
+        }
+        return 3600 * 1000;
     }
 
     function setHours(hours) {
@@ -73,6 +98,27 @@
         return units[name] || "";
     }
 
+    function visibleBounds() {
+        let min = Infinity;
+        let max = -Infinity;
+        chart.data.datasets.forEach(function (dataset) {
+            if (dataset.hidden) {
+                return;
+            }
+            dataset.data.forEach(function (point) {
+                if (typeof point.y !== "number") {
+                    return;
+                }
+                min = Math.min(min, point.y);
+                max = Math.max(max, point.y);
+            });
+        });
+        if (min === Infinity || max === -Infinity) {
+            return null;
+        }
+        return { min: min, max: max };
+    }
+
     function applyVisibility() {
         if (!chart) {
             return;
@@ -85,7 +131,7 @@
         });
         renderLegend();
         applyScaleOptions();
-        chart.update();
+        chart.update("none");
     }
 
     function renderLegend() {
@@ -124,31 +170,24 @@
         chart.options.scales.x.grid.display = grid;
         chart.options.scales.y.grid.display = grid;
 
+        const bounds = visibleBounds();
+        if (!bounds) {
+            chart.options.scales.y.min = 0;
+            chart.options.scales.y.max = 10;
+            return;
+        }
+
+        let span = bounds.max - bounds.min;
+        if (!(span > 0)) {
+            span = Math.max(Math.abs(bounds.max) * 0.2, 1);
+        }
+        const top = span * TOP_PADDING;
         if (autoscaleEl.checked) {
-            delete chart.options.scales.y.min;
-            delete chart.options.scales.y.max;
+            chart.options.scales.y.min = bounds.min;
+            chart.options.scales.y.max = bounds.max + top;
         } else {
-            let min = Infinity;
-            let max = -Infinity;
-            chart.data.datasets.forEach(function (dataset) {
-                if (dataset.hidden) {
-                    return;
-                }
-                dataset.data.forEach(function (point) {
-                    if (typeof point.y !== "number") {
-                        return;
-                    }
-                    min = Math.min(min, point.y);
-                    max = Math.max(max, point.y);
-                });
-            });
-            if (min === Infinity) {
-                min = 0;
-                max = 10;
-            }
-            const span = Math.max(max - min, 1);
-            chart.options.scales.y.min = min - span * 0.05;
-            chart.options.scales.y.max = max + span * 0.15;
+            chart.options.scales.y.min = bounds.min - span * 0.05;
+            chart.options.scales.y.max = bounds.max + top;
         }
     }
 
@@ -168,16 +207,26 @@
                 interaction: { mode: "index", intersect: false },
                 plugins: {
                     legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: function (context) {
-                                const unit = channelUnit(context.dataset.label);
-                                const value = context.parsed.y;
-                                return context.dataset.label + ": " +
-                                    (value === null || value === undefined ? "—" : Number(value).toFixed(2)) +
-                                    (unit ? " " + unit : "");
+                    tooltip: { enabled: false },
+                    zoom: {
+                        pan: {
+                            enabled: true,
+                            mode: "x",
+                            threshold: 5,
+                            onPanComplete: function () {
+                                userAdjustedX = true;
                             }
-                        }
+                        },
+                        zoom: {
+                            wheel: { enabled: true, speed: 0.12 },
+                            pinch: { enabled: true },
+                            drag: { enabled: false },
+                            mode: "x",
+                            onZoomComplete: function () {
+                                userAdjustedX = true;
+                            }
+                        },
+                        limits: { x: { minRange: 1000 } }
                     }
                 },
                 scales: {
@@ -185,7 +234,20 @@
                         type: "time",
                         grid: { display: true },
                         ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 16 },
-                        time: { tooltipFormat: "dd.MM.yyyy HH:mm:ss" }
+                        time: {
+                            tooltipFormat: "HH:mm:ss",
+                            displayFormats: {
+                                millisecond: "HH:mm:ss.SSS",
+                                second: "HH:mm:ss",
+                                minute: "HH:mm:ss",
+                                hour: "HH:mm:ss",
+                                day: "dd.MM.yyyy",
+                                week: "dd.MM.yyyy",
+                                month: "MM.yyyy",
+                                quarter: "MM.yyyy",
+                                year: "yyyy"
+                            }
+                        }
                     },
                     y: {
                         grid: { display: true },
@@ -194,11 +256,188 @@
                 }
             }
         });
+        wrap.dataset.zoom = typeof chart.zoomScale === "function" ? "1" : "0";
         applyScaleOptions();
     }
 
+    function resetZoom() {
+        hideActiveReadout();
+        if (!chart) {
+            userAdjustedX = false;
+            return;
+        }
+        if (typeof chart.resetZoom === "function") {
+            chart.resetZoom();
+        } else {
+            delete chart.options.scales.x.min;
+            delete chart.options.scales.x.max;
+            chart.update("none");
+        }
+        userAdjustedX = false;
+    }
+
+    function applyXRange(startMs, endMs) {
+        if (!chart || userAdjustedX) {
+            return;
+        }
+        chart.options.scales.x.min = startMs;
+        chart.options.scales.x.max = endMs;
+        chart.update("none");
+    }
+
+    function nearestPoint(data, targetX) {
+        if (!data || !data.length) {
+            return null;
+        }
+        let low = 0;
+        let high = data.length - 1;
+        while (low < high) {
+            const mid = Math.floor((low + high) / 2);
+            if (data[mid].x < targetX) {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        let best = data[low];
+        if (low > 0 && Math.abs(data[low - 1].x - targetX) < Math.abs(best.x - targetX)) {
+            best = data[low - 1];
+        }
+        return best;
+    }
+
+    function hideActiveReadout() {
+        activePoint = null;
+        bandEl.style.display = "none";
+        readoutEl.style.display = "none";
+    }
+
+    function showMarker(px) {
+        const area = chart.chartArea;
+        bandEl.style.display = "block";
+        bandEl.style.left = px + "px";
+        bandEl.style.top = area.top + "px";
+        bandEl.style.height = (area.bottom - area.top) + "px";
+    }
+
+    function updateReadout(px, py) {
+        const area = chart.chartArea;
+        const timeValue = chart.scales.x.getValueForPixel(px);
+        if (timeValue === undefined || timeValue === null || isNaN(timeValue)) {
+            readoutEl.style.display = "none";
+            return;
+        }
+
+        const rows = [];
+        chart.data.datasets.forEach(function (dataset) {
+            if (dataset.hidden) {
+                return;
+            }
+            const point = nearestPoint(dataset.data, timeValue);
+            if (!point) {
+                return;
+            }
+            const unit = channelUnit(dataset.label);
+            const numeric = typeof point.y === "number" ? point.y.toFixed(2) : "—";
+            rows.push({
+                label: dataset.label,
+                value: numeric + (unit ? " " + unit : "")
+            });
+        });
+
+        let html = '<div class="ro-time">' + formatTime(timeValue) + "</div>";
+        rows.forEach(function (row) {
+            html += '<div class="ro-row"><span>' + row.label + "</span><span>" + row.value + "</span></div>";
+        });
+        readoutEl.innerHTML = html;
+        readoutEl.style.display = "block";
+
+        const wrapRect = wrap.getBoundingClientRect();
+        const width = readoutEl.offsetWidth;
+        const height = readoutEl.offsetHeight;
+        let left = px + 14;
+        if (left + width > wrapRect.width - 6) {
+            left = px - width - 14;
+        }
+        left = Math.max(6, Math.min(left, wrapRect.width - width - 6));
+        let top = py - height - 14;
+        if (top < area.top) {
+            top = py + 14;
+        }
+        top = Math.max(area.top, Math.min(top, wrapRect.height - height - 6));
+        readoutEl.style.left = left + "px";
+        readoutEl.style.top = top + "px";
+    }
+
+    function refreshActiveReadout() {
+        if (!chart || !activePoint || !insideChartArea(activePoint)) {
+            if (activePoint) {
+                hideActiveReadout();
+            }
+            return;
+        }
+        showMarker(activePoint.x);
+        updateReadout(activePoint.x, activePoint.y);
+    }
+
+    function toCanvasPoint(event) {
+        const rect = wrap.getBoundingClientRect();
+        return {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top
+        };
+    }
+
+    function insideChartArea(point) {
+        if (!chart || !chart.chartArea) {
+            return false;
+        }
+        const area = chart.chartArea;
+        return point.x >= area.left && point.x <= area.right &&
+            point.y >= area.top && point.y <= area.bottom;
+    }
+
+    function onMouseDown(event) {
+        if (event.button !== 0) {
+            return;
+        }
+        const point = toCanvasPoint(event);
+        if (!insideChartArea(point)) {
+            hideActiveReadout();
+            return;
+        }
+        pointerDown = { x: point.x, y: point.y, moved: false };
+        activePoint = { x: point.x, y: point.y };
+        canvas.style.cursor = "grabbing";
+        refreshActiveReadout();
+    }
+
+    function onMouseMove(event) {
+        if (!pointerDown) {
+            return;
+        }
+        const point = toCanvasPoint(event);
+        if (Math.abs(point.x - pointerDown.x) > 3 || Math.abs(point.y - pointerDown.y) > 3) {
+            pointerDown.moved = true;
+        }
+        const area = chart.chartArea;
+        activePoint = {
+            x: Math.max(area.left, Math.min(area.right, point.x)),
+            y: Math.max(area.top, Math.min(area.bottom, point.y))
+        };
+        refreshActiveReadout();
+    }
+
+    function onMouseUp() {
+        if (!pointerDown) {
+            return;
+        }
+        pointerDown = null;
+        canvas.style.cursor = "grab";
+        hideActiveReadout();
+    }
+
     function updateChart(payload) {
-        lastPayload = payload;
         if (!chart) {
             buildChart();
         }
@@ -234,12 +473,12 @@
         if (total === 0) {
             setStatus("Нет данных за выбранный период.");
         } else {
-            setStatus("Точек на графике: " + total + ". Обновлено: " + new Date().toLocaleTimeString("ru-RU"));
+            setStatus("Точек на графике: " + total + ". Обновлено: " + formatTime(new Date()));
         }
         periodEl.textContent = (startInput.value || "—") + "  →  " + (endInput.value || "—");
     }
 
-    function fetchData() {
+    function fetchData(resetAfter, displayRange) {
         const start = toIso(startInput.value);
         const end = toIso(endInput.value);
         if (!start || !end) {
@@ -258,6 +497,13 @@
             })
             .then(function (payload) {
                 updateChart(payload);
+                if (resetAfter) {
+                    resetZoom();
+                }
+                if (displayRange) {
+                    applyXRange(displayRange.startMs, displayRange.endMs);
+                }
+                refreshActiveReadout();
             })
             .catch(function (error) {
                 setStatus("Ошибка загрузки данных: " + error.message, true);
@@ -289,27 +535,56 @@
         reportDateEl.textContent = new Date().toLocaleString("ru-RU");
     }
 
-    function toggleLiveMode() {
-        const active = liveEl.checked;
-        liveEl.classList.toggle("active", active);
+    function liveTick() {
+        const span = currentSpanMs();
+        const now = Date.now();
+        const startMs = now - span;
+        const displayEndMs = now + span * LIVE_PADDING;
+        startInput.value = toLocalInput(new Date(startMs));
+        endInput.value = toLocalInput(new Date(now));
+        fetchData(false, { startMs: startMs, endMs: displayEndMs });
+    }
+
+    function startLiveMode() {
+        liveEl.checked = true;
+        liveEl.classList.add("active");
+        hideActiveReadout();
+        resetZoom();
+        userAdjustedX = false;
+        if (liveTimer) {
+            clearInterval(liveTimer);
+        }
+        liveTick();
+        liveTimer = setInterval(liveTick, 1000);
+    }
+
+    function stopLiveMode() {
+        liveEl.checked = false;
+        liveEl.classList.remove("active");
         if (liveTimer) {
             clearInterval(liveTimer);
             liveTimer = null;
         }
-        if (active) {
-            if (!startInput.value || !endInput.value) {
-                setHours(1);
-            }
-            fetchData();
-            liveTimer = setInterval(fetchData, 2000);
+    }
+
+    function toggleLiveMode() {
+        if (liveEl.checked) {
+            startLiveMode();
+        } else {
+            stopLiveMode();
         }
     }
 
-    document.getElementById("build-chart").addEventListener("click", fetchData);
+    function buildReport() {
+        stopLiveMode();
+        fetchData(true, null);
+    }
+
+    document.getElementById("build-chart").addEventListener("click", buildReport);
     document.querySelectorAll(".quick-range .btn").forEach(function (button) {
         button.addEventListener("click", function () {
             setHours(Number(button.dataset.hours));
-            fetchData();
+            buildReport();
         });
     });
     toggles.forEach(function (toggle) {
@@ -318,16 +593,19 @@
     autoscaleEl.addEventListener("change", function () {
         applyScaleOptions();
         if (chart) {
-            chart.update();
+            chart.update("none");
         }
     });
     gridEl.addEventListener("change", function () {
         applyScaleOptions();
         if (chart) {
-            chart.update();
+            chart.update("none");
         }
     });
     liveEl.addEventListener("change", toggleLiveMode);
+    document.getElementById("reset-zoom").addEventListener("click", function () {
+        resetZoom();
+    });
     document.getElementById("print-chart").addEventListener("click", function () {
         updateReportDate();
         if (chart) {
@@ -336,6 +614,16 @@
         window.print();
     });
 
+    canvas.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("blur", function () {
+        pointerDown = null;
+        hideActiveReadout();
+    });
+    canvas.addEventListener("dblclick", resetZoom);
+    canvas.style.cursor = "grab";
+
     updateReportDate();
-    loadDeviceConfig().then(fetchData);
+    loadDeviceConfig().then(startLiveMode);
 })();

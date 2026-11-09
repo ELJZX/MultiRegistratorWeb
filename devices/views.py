@@ -62,8 +62,8 @@ def device_detail(request, pk):
         {
             "device": device,
             "channels": channels,
-            "default_end": now.strftime("%Y-%m-%dT%H:%M"),
-            "default_start": (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"),
+            "default_end": now.strftime("%Y-%m-%dT%H:%M:%S"),
+            "default_start": (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S"),
         },
     )
 

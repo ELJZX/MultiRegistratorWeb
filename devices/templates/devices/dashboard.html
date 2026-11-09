@@ -16,20 +16,20 @@
 <div class="device-grid">
     {% for row in rows %}
     {% with device=row.device %}
-    <article class="device-card {{ device.status_css }}">
+    <article class="device-card {{ device.status_css }}" data-device-id="{{ device.pk }}">
         <div class="device-card-head">
             <div>
                 <h2><a href="{% url 'device-detail' device.pk %}">{{ device.name }}</a></h2>
                 <p class="muted">{{ device.host }}:{{ device.port }} · ID {{ device.unit_id }}</p>
             </div>
-            <span class="badge {{ device.status_css }}">
+            <span class="badge {{ device.status_css }}" data-role="badge">
                 {% if not device.enabled %}Отключено{% elif device.online %}В сети{% else %}Недоступно{% endif %}
             </span>
         </div>
         <dl class="device-meta">
             <div><dt>Период опроса</dt><dd>{{ device.poll_interval }} с</dd></div>
-            <div><dt>Задержка</dt><dd>{{ device.latency_ms|floatformat:0 }} мс</dd></div>
-            <div><dt>Последний успех</dt><dd>{% if device.last_success %}{{ device.last_success|date:"d.m.Y H:i:s" }}{% else %}—{% endif %}</dd></div>
+            <div><dt>Задержка</dt><dd data-role="latency">{{ device.latency_ms|floatformat:0 }} мс</dd></div>
+            <div><dt>Последний успех</dt><dd data-role="last-success">{% if device.last_success %}{{ device.last_success|date:"d.m.Y H:i:s" }}{% else %}—{% endif %}</dd></div>
         </dl>
         {% if row.latest %}
         <ul class="channel-values">
@@ -37,7 +37,7 @@
             <li>
                 <span class="channel-name">{{ item.name }}</span>
                 <span class="channel-value">
-                    {% if item.value is not None %}{{ item.value|floatformat:2 }}{% else %}—{% endif %}
+                    <span data-role="value" data-channel="{{ item.name }}">{% if item.value is not None %}{{ item.value|floatformat:2 }}{% else %}—{% endif %}</span>
                     <small>{{ item.unit }}</small>
                 </span>
             </li>
@@ -67,8 +67,90 @@
 {% endblock %}
 {% block scripts %}
 <script>
-document.getElementById('refresh-btn').addEventListener('click', function () {
-    window.location.reload();
-});
+(function () {
+    const cards = Array.from(document.querySelectorAll(".device-card[data-device-id]"));
+    const refreshButton = document.getElementById("refresh-btn");
+    if (refreshButton) {
+        refreshButton.addEventListener("click", function () {
+            window.location.reload();
+        });
+    }
+
+    function formatDate(value) {
+        if (!value) {
+            return "—";
+        }
+        const date = new Date(value);
+        if (isNaN(date.getTime())) {
+            return "—";
+        }
+        return date.toLocaleString("ru-RU", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false
+        });
+    }
+
+    function applyDevice(card, item) {
+        const config = item.config;
+        const status = item.status;
+        const online = Boolean(status.online) && config.enabled;
+        card.classList.toggle("online", online);
+        card.classList.toggle("offline", !online);
+
+        const badge = card.querySelector('[data-role="badge"]');
+        if (badge) {
+            badge.className = "badge " + (config.enabled ? (online ? "online" : "offline") : "");
+            badge.textContent = !config.enabled ? "Отключено" : (online ? "В сети" : "Недоступно");
+        }
+
+        const last = card.querySelector('[data-role="last-success"]');
+        if (last) {
+            last.textContent = formatDate(status.last_success);
+        }
+
+        const latency = card.querySelector('[data-role="latency"]');
+        if (latency) {
+            latency.textContent = Math.round(status.latency_ms || 0) + " мс";
+        }
+
+        card.querySelectorAll('[data-role="value"][data-channel]').forEach(function (element) {
+            const value = status.values ? status.values[element.dataset.channel] : null;
+            element.textContent = (value === null || value === undefined) ? "—" : Number(value).toFixed(2);
+        });
+    }
+
+    function refreshDevices() {
+        fetch("/api/devices", { headers: { "Accept": "application/json" }, cache: "no-store" })
+            .then(function (response) {
+                return response.ok ? response.json() : null;
+            })
+            .then(function (list) {
+                if (!list) {
+                    return;
+                }
+                const byId = {};
+                list.forEach(function (item) {
+                    byId[item.config.id] = item;
+                });
+                cards.forEach(function (card) {
+                    const item = byId[card.dataset.deviceId];
+                    if (item) {
+                        applyDevice(card, item);
+                    }
+                });
+            })
+            .catch(function () {
+            });
+    }
+
+    if (cards.length) {
+        setInterval(refreshDevices, 1000);
+    }
+})();
 </script>
 {% endblock %}

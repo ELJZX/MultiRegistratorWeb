@@ -21,10 +21,10 @@
         <section class="panel-block">
             <h3>Период</h3>
             <label>Начало
-                <input type="datetime-local" id="period-start" value="{{ default_start }}">
+                <input type="datetime-local" id="period-start" step="1" value="{{ default_start }}">
             </label>
             <label>Конец
-                <input type="datetime-local" id="period-end" value="{{ default_end }}">
+                <input type="datetime-local" id="period-end" step="1" value="{{ default_end }}">
             </label>
             <div class="quick-range">
                 <button class="btn tiny" type="button" data-hours="1">1 ч</button>
@@ -52,7 +52,7 @@
         <section class="panel-block">
             <h3>Настройки</h3>
             <label class="switch-row">
-                <input type="checkbox" id="live-mode">
+                <input type="checkbox" id="live-mode" class="active" checked>
                 <span>Режим реального времени</span>
             </label>
             <label class="switch-row">
@@ -63,6 +63,7 @@
                 <input type="checkbox" id="show-grid" checked>
                 <span>Показывать сетку</span>
             </label>
+            <button class="btn full" id="reset-zoom" type="button">Сбросить масштаб</button>
         </section>
 
         <section class="panel-block">
@@ -78,6 +79,8 @@
         </div>
         <div class="chart-canvas-wrap">
             <canvas id="chart-canvas"></canvas>
+            <div class="chart-select-band" id="chart-select-band"></div>
+            <div class="chart-readout" id="chart-readout"></div>
         </div>
         <div class="chart-legend" id="chart-legend"></div>
         <p class="chart-footer">Дата формирования отчёта: <span id="report-date"></span></p>
@@ -88,5 +91,7 @@
 {% block scripts %}
 <script src="{% static 'devices/vendor/chart.umd.min.js' %}"></script>
 <script src="{% static 'devices/vendor/chartjs-adapter-date-fns.bundle.min.js' %}"></script>
+<script src="{% static 'devices/vendor/hammer.min.js' %}"></script>
+<script src="{% static 'devices/vendor/chartjs-plugin-zoom.min.js' %}"></script>
 <script src="{% static 'devices/chart.js' %}"></script>
 {% endblock %}

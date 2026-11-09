@@ -423,6 +423,54 @@ a:hover {
     height: 560px;
 }
 
+.chart-select-band {
+    position: absolute;
+    display: none;
+    width: 0;
+    background: transparent;
+    border-left: 1px dashed rgba(37, 99, 235, 0.85);
+    pointer-events: none;
+    z-index: 3;
+}
+
+.chart-canvas-wrap canvas {
+    cursor: grab;
+}
+
+.chart-readout {
+    position: absolute;
+    display: none;
+    min-width: 150px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.92);
+    color: #f8fafc;
+    font-size: 12px;
+    line-height: 1.5;
+    pointer-events: none;
+    z-index: 4;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.28);
+}
+
+.chart-readout .ro-time {
+    margin-bottom: 4px;
+    color: #93c5fd;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.chart-readout .ro-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.chart-readout .ro-row span:last-child {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
 .chart-legend {
     display: flex;
     flex-wrap: wrap;

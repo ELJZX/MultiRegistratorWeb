@@ -79,3 +79,6 @@ class ApiTests(TestCase):
         response = self.client.get(f"/devices/{self.device.pk}/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "temperature")
+        self.assertContains(response, 'step="1"')
+        self.assertContains(response, "chartjs-plugin-zoom")
+        self.assertRegex(response.content.decode(), r"\d{2}:\d{2}:\d{2}")
