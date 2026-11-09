@@ -1,6 +1,7 @@
 from django.contrib import admin, messages
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import path
+from django.urls import path, reverse
+from django.utils.html import format_html
 
 from .discovery import discover_channels, find_unit_ids
 from .modbus import ModbusReadError, ModbusReader, RegisterFunction
@@ -50,6 +51,7 @@ class DeviceAdmin(admin.ModelAdmin):
         "online",
         "last_success",
         "latency_ms",
+        "scan_link",
     )
     list_filter = ("enabled", "online")
     search_fields = ("name", "host")
@@ -96,6 +98,11 @@ class DeviceAdmin(admin.ModelAdmin):
             ),
         ]
         return custom + urls
+
+    @admin.display(description="Сканирование")
+    def scan_link(self, obj):
+        url = reverse("admin:devices_device_scan", args=[obj.pk])
+        return format_html('<a class="button" href="{}">Сканировать</a>', url)
 
     def _add_scanned_channels(self, request, device):
         created = 0

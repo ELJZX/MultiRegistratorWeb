@@ -7,3 +7,11 @@
     </li>
     {% endif %}
 {% endblock %}
+{% block submit_buttons_bottom %}
+    {{ block.super }}
+    {% if original %}
+    <div class="submit-row" style="margin-top:10px;">
+        <a href="{% url 'admin:devices_device_scan' original.pk %}" class="button">Поиск и сканирование каналов</a>
+    </div>
+    {% endif %}
+{% endblock %}
