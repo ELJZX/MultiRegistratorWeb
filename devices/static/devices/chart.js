@@ -12,6 +12,7 @@
     const canvas = document.getElementById("chart-canvas");
     const wrap = canvas.parentElement;
     const bandEl = document.getElementById("chart-select-band");
+    const markersEl = document.getElementById("chart-markers");
     const readoutEl = document.getElementById("chart-readout");
     const statusEl = document.getElementById("chart-status");
     const statusPrefixEl = document.getElementById("status-prefix");
@@ -329,10 +330,45 @@
         return best;
     }
 
+    function clearMarkers() {
+        if (markersEl) {
+            markersEl.innerHTML = "";
+        }
+    }
+
+    function renderMarkers() {
+        if (!markersEl || !chart || !activePoint) {
+            return;
+        }
+        clearMarkers();
+        const xValue = chart.scales.x.getValueForPixel(activePoint.x);
+        if (xValue === undefined || xValue === null || isNaN(xValue)) {
+            return;
+        }
+        chart.data.datasets.forEach(function (dataset) {
+            if (dataset.hidden || !dataset.data || !dataset.data.length) {
+                return;
+            }
+            const point = nearestPoint(dataset.data, xValue);
+            if (!point || typeof point.y !== "number") {
+                return;
+            }
+            const px = chart.scales.x.getPixelForValue(point.x);
+            const py = chart.scales.y.getPixelForValue(point.y);
+            const dot = document.createElement("span");
+            dot.className = "chart-marker";
+            dot.style.left = px + "px";
+            dot.style.top = py + "px";
+            dot.style.background = dataset.borderColor;
+            markersEl.appendChild(dot);
+        });
+    }
+
     function hideActiveReadout() {
         activePoint = null;
         bandEl.style.display = "none";
         readoutEl.style.display = "none";
+        clearMarkers();
     }
 
     function showMarker(px) {
@@ -401,6 +437,7 @@
         }
         showMarker(activePoint.x);
         updateReadout(activePoint.x, activePoint.y);
+        renderMarkers();
     }
 
     function toCanvasPoint(event) {
@@ -614,6 +651,8 @@
                 backgroundColor: palette[index % palette.length],
                 borderWidth: 2,
                 pointRadius: 0,
+                pointHoverRadius: 0,
+                pointHoverBorderWidth: 0,
                 pointHitRadius: 8,
                 tension: 0,
                 spanGaps: true,
@@ -775,6 +814,15 @@
             chart.resize();
         }
         window.print();
+    });
+
+    [startInput, endInput].forEach(function (input) {
+        if (!input) {
+            return;
+        }
+        input.addEventListener("focus", function () {
+            stopLiveMode();
+        });
     });
 
     canvas.addEventListener("mousedown", onMouseDown);

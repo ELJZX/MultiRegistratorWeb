@@ -551,6 +551,23 @@ input[type="checkbox"] {
     cursor: default;
 }
 
+.chart-markers {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 4;
+}
+
+.chart-marker {
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-sizing: border-box;
+    transform: translate(-50%, -50%);
+}
+
 .chart-readout {
     position: absolute;
     display: none;
