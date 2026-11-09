@@ -3,14 +3,16 @@
 {% block title %}{{ device.name }} — MultiRegistrator Web{% endblock %}
 {% block content %}
 <div class="section-head">
-    <div>
-        <a class="back-link" href="{% url 'dashboard' %}">← Назад к устройствам</a>
-        <h1>{{ device.name }}</h1>
-        <p class="muted">{{ device.host }}:{{ device.port }} · Modbus ID {{ device.unit_id }}</p>
+    <div class="detail-head-main">
+        <a class="btn back-btn" href="{% url 'dashboard' %}">← Назад к устройствам</a>
+        <div class="device-title">
+            <h1>{{ device.name }}</h1>
+            <span class="badge {{ device.status_css }}" id="device-status-badge">
+                {% if not device.enabled %}Отключено{% elif device.online %}В сети{% else %}Недоступно{% endif %}
+            </span>
+        </div>
     </div>
-    <span class="badge {{ device.status_css }}">
-        {% if not device.enabled %}Отключено{% elif device.online %}В сети{% else %}Недоступно{% endif %}
-    </span>
+    <p class="print-report-date">Дата формирования отчёта: <span id="report-date"></span></p>
 </div>
 
 <div class="chart-layout" id="chart-app"
@@ -26,11 +28,6 @@
             <label>Конец
                 <input type="datetime-local" id="period-end" step="1" value="{{ default_end }}">
             </label>
-            <div class="quick-range">
-                <button class="btn tiny" type="button" data-hours="1">1 ч</button>
-                <button class="btn tiny" type="button" data-hours="6">6 ч</button>
-                <button class="btn tiny" type="button" data-hours="24">24 ч</button>
-            </div>
             <button class="btn primary full" id="build-chart" type="button">Сформировать график</button>
         </section>
 
@@ -51,40 +48,28 @@
 
         <section class="panel-block">
             <h3>Настройки</h3>
-            <label class="switch-row">
-                <input type="checkbox" id="live-mode" class="active" checked>
-                <span>Режим реального времени</span>
-            </label>
-            <label class="switch-row">
-                <input type="checkbox" id="autoscale" checked>
-                <span>Автомасштаб</span>
-            </label>
-            <label class="switch-row">
-                <input type="checkbox" id="show-grid" checked>
-                <span>Показывать сетку</span>
-            </label>
+            <button class="btn grid-btn full active" id="grid-toggle" type="button" aria-pressed="true">Показывать сетку</button>
             <button class="btn full" id="reset-zoom" type="button">Сбросить масштаб</button>
         </section>
 
-        <section class="panel-block">
-            <h3>Печать</h3>
-            <button class="btn full" id="print-chart" type="button">Печать / PDF</button>
-        </section>
+        <button class="btn print-btn" id="print-chart" type="button">Печать / PDF</button>
     </aside>
 
     <section class="chart-area">
         <div class="chart-header">
-            <h2>{{ device.name }}</h2>
             <p id="chart-period" class="muted"></p>
+            <button class="btn live-btn active" id="live-toggle" type="button" aria-pressed="true">Режим реального времени</button>
         </div>
         <div class="chart-canvas-wrap">
             <canvas id="chart-canvas"></canvas>
             <div class="chart-select-band" id="chart-select-band"></div>
             <div class="chart-readout" id="chart-readout"></div>
+            <div class="chart-legend" id="chart-legend"></div>
         </div>
-        <div class="chart-legend" id="chart-legend"></div>
-        <p class="chart-footer">Дата формирования отчёта: <span id="report-date"></span></p>
-        <div class="chart-status" id="chart-status"></div>
+        <div class="chart-status" id="chart-status">
+            <span class="status-prefix" id="status-prefix">Обновлено:</span>
+            <span class="status-value" id="status-value"></span>
+        </div>
     </section>
 </div>
 {% endblock %}
@@ -94,4 +79,34 @@
 <script src="{% static 'devices/vendor/hammer.min.js' %}"></script>
 <script src="{% static 'devices/vendor/chartjs-plugin-zoom.min.js' %}"></script>
 <script src="{% static 'devices/chart.js' %}"></script>
+<script>
+(function () {
+    const badge = document.getElementById("device-status-badge");
+    if (!badge) {
+        return;
+    }
+    const deviceId = "{{ device.pk }}";
+    function refreshStatus() {
+        fetch("/api/devices/" + encodeURIComponent(deviceId), {
+            headers: { "Accept": "application/json" },
+            cache: "no-store"
+        })
+            .then(function (response) {
+                return response.ok ? response.json() : null;
+            })
+            .then(function (payload) {
+                if (!payload || !payload.config || !payload.status) {
+                    return;
+                }
+                const enabled = Boolean(payload.config.enabled);
+                const online = Boolean(payload.status.online) && enabled;
+                badge.className = "badge " + (enabled ? (online ? "online" : "offline") : "");
+                badge.textContent = !enabled ? "Отключено" : (online ? "В сети" : "Недоступно");
+            })
+            .catch(function () {
+            });
+    }
+    setInterval(refreshStatus, 3000);
+})();
+</script>
 {% endblock %}

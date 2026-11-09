@@ -2,12 +2,7 @@
 {% block title %}Устройства — MultiRegistrator Web{% endblock %}
 {% block content %}
 <div class="section-head">
-    <div>
-        <h1>Устройства</h1>
-        <p class="muted">Состояние опроса и последние считанные значения</p>
-    </div>
     <div class="actions">
-        <a class="btn primary" href="{% url 'admin:devices_device_add' %}">Добавить устройство</a>
         <button class="btn" id="refresh-btn" type="button">Обновить</button>
     </div>
 </div>
@@ -20,7 +15,6 @@
         <div class="device-card-head">
             <div>
                 <h2><a href="{% url 'device-detail' device.pk %}">{{ device.name }}</a></h2>
-                <p class="muted">{{ device.host }}:{{ device.port }} · ID {{ device.unit_id }}</p>
             </div>
             <span class="badge {{ device.status_css }}" data-role="badge">
                 {% if not device.enabled %}Отключено{% elif device.online %}В сети{% else %}Недоступно{% endif %}
@@ -29,7 +23,7 @@
         <dl class="device-meta">
             <div><dt>Период опроса</dt><dd>{{ device.poll_interval }} с</dd></div>
             <div><dt>Задержка</dt><dd data-role="latency">{{ device.latency_ms|floatformat:0 }} мс</dd></div>
-            <div><dt>Последний успех</dt><dd data-role="last-success">{% if device.last_success %}{{ device.last_success|date:"d.m.Y H:i:s" }}{% else %}—{% endif %}</dd></div>
+            <div><dt>Последние данные</dt><dd data-role="last-success">{% if device.last_success %}{{ device.last_success|date:"d.m.Y H:i:s" }}{% else %}—{% endif %}</dd></div>
         </dl>
         {% if row.latest %}
         <ul class="channel-values">
@@ -51,7 +45,9 @@
         {% endif %}
         <div class="device-card-actions">
             <a class="btn small" href="{% url 'device-detail' device.pk %}">График</a>
+            {% if user.is_staff %}
             <a class="btn small" href="{% url 'admin:devices_device_change' device.pk %}">Изменить</a>
+            {% endif %}
         </div>
     </article>
     {% endwith %}
@@ -61,7 +57,6 @@
 <div class="empty-state">
     <h2>Устройства ещё не добавлены</h2>
     <p>Добавьте устройство и каналы в настройках, затем запустите опрос.</p>
-    <a class="btn primary" href="{% url 'admin:devices_device_add' %}">Добавить устройство</a>
 </div>
 {% endif %}
 {% endblock %}
@@ -76,6 +71,10 @@
         });
     }
 
+    function pad(value) {
+        return String(value).padStart(2, "0");
+    }
+
     function formatDate(value) {
         if (!value) {
             return "—";
@@ -84,15 +83,9 @@
         if (isNaN(date.getTime())) {
             return "—";
         }
-        return date.toLocaleString("ru-RU", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-            hour12: false
-        });
+        return pad(date.getDate()) + "." + pad(date.getMonth() + 1) + "." +
+            date.getFullYear() + " " +
+            pad(date.getHours()) + ":" + pad(date.getMinutes()) + ":" + pad(date.getSeconds());
     }
 
     function applyDevice(card, item) {

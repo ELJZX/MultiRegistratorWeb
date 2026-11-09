@@ -14,12 +14,13 @@
     const bandEl = document.getElementById("chart-select-band");
     const readoutEl = document.getElementById("chart-readout");
     const statusEl = document.getElementById("chart-status");
+    const statusPrefixEl = document.getElementById("status-prefix");
+    const statusValueEl = document.getElementById("status-value");
     const legendEl = document.getElementById("chart-legend");
     const periodEl = document.getElementById("chart-period");
     const reportDateEl = document.getElementById("report-date");
-    const liveEl = document.getElementById("live-mode");
-    const autoscaleEl = document.getElementById("autoscale");
-    const gridEl = document.getElementById("show-grid");
+    const liveBtn = document.getElementById("live-toggle");
+    const gridEl = document.getElementById("grid-toggle");
     const toggles = Array.from(document.querySelectorAll(".channel-toggle"));
 
     const palette = [
@@ -36,6 +37,7 @@
     let userAdjustedX = false;
     let activePoint = null;
     let pointerDown = null;
+    let panFrame = null;
 
     if (!window.Chart) {
         setStatus("Не удалось загрузить библиотеку графиков (Chart.js).", true);
@@ -43,8 +45,23 @@
     }
 
     function setStatus(text, isError) {
-        statusEl.textContent = text || "";
+        if (statusPrefixEl) {
+            statusPrefixEl.style.display = "none";
+        }
+        if (statusValueEl) {
+            statusValueEl.textContent = text || "";
+        }
         statusEl.classList.toggle("error", Boolean(isError));
+    }
+
+    function setUpdated() {
+        if (statusPrefixEl) {
+            statusPrefixEl.style.display = "";
+        }
+        if (statusValueEl) {
+            statusValueEl.textContent = formatTime(new Date());
+        }
+        statusEl.classList.remove("error");
     }
 
     function pad(value) {
@@ -70,6 +87,19 @@
             return "—";
         }
         return date.toLocaleTimeString("ru-RU", { hour12: false });
+    }
+
+    function formatPeriodValue(value) {
+        if (!value) {
+            return "—";
+        }
+        const date = new Date(value);
+        if (isNaN(date.getTime())) {
+            return "—";
+        }
+        return pad(date.getDate()) + "." + pad(date.getMonth() + 1) + "." +
+            String(date.getFullYear()).slice(-2) + " " +
+            pad(date.getHours()) + ":" + pad(date.getMinutes());
     }
 
     function currentSpanMs() {
@@ -141,9 +171,11 @@
         }
         legendEl.innerHTML = "";
         chart.data.datasets.forEach(function (dataset) {
+            if (dataset.hidden) {
+                return;
+            }
             const item = document.createElement("span");
             item.className = "legend-item";
-            item.style.opacity = dataset.hidden ? "0.35" : "1";
             const swatch = document.createElement("span");
             swatch.className = "legend-swatch";
             swatch.style.background = dataset.borderColor;
@@ -166,7 +198,7 @@
         if (!chart) {
             return;
         }
-        const grid = gridEl.checked;
+        const grid = gridEl ? gridEl.classList.contains("active") : true;
         chart.options.scales.x.grid.display = grid;
         chart.options.scales.y.grid.display = grid;
 
@@ -182,13 +214,8 @@
             span = Math.max(Math.abs(bounds.max) * 0.2, 1);
         }
         const top = span * TOP_PADDING;
-        if (autoscaleEl.checked) {
-            chart.options.scales.y.min = bounds.min;
-            chart.options.scales.y.max = bounds.max + top;
-        } else {
-            chart.options.scales.y.min = bounds.min - span * 0.05;
-            chart.options.scales.y.max = bounds.max + top;
-        }
+        chart.options.scales.y.min = bounds.min;
+        chart.options.scales.y.max = bounds.max + top;
     }
 
     function buildChart() {
@@ -210,12 +237,8 @@
                     tooltip: { enabled: false },
                     zoom: {
                         pan: {
-                            enabled: true,
-                            mode: "x",
-                            threshold: 5,
-                            onPanComplete: function () {
-                                userAdjustedX = true;
-                            }
+                            enabled: false,
+                            mode: "x"
                         },
                         zoom: {
                             wheel: { enabled: true, speed: 0.12 },
@@ -226,7 +249,7 @@
                                 userAdjustedX = true;
                             }
                         },
-                        limits: { x: { minRange: 1000 } }
+                        limits: { x: { minRange: 1000, maxRange: 7200000 } }
                     }
                 },
                 scales: {
@@ -235,9 +258,9 @@
                         grid: { display: true },
                         ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 16 },
                         time: {
+                            minUnit: "second",
                             tooltipFormat: "HH:mm:ss",
                             displayFormats: {
-                                millisecond: "HH:mm:ss.SSS",
                                 second: "HH:mm:ss",
                                 minute: "HH:mm:ss",
                                 hour: "HH:mm:ss",
@@ -266,18 +289,18 @@
             userAdjustedX = false;
             return;
         }
+        delete chart.options.scales.x.min;
+        delete chart.options.scales.x.max;
         if (typeof chart.resetZoom === "function") {
             chart.resetZoom();
         } else {
-            delete chart.options.scales.x.min;
-            delete chart.options.scales.x.max;
             chart.update("none");
         }
         userAdjustedX = false;
     }
 
     function applyXRange(startMs, endMs) {
-        if (!chart || userAdjustedX) {
+        if (!chart || userAdjustedX || pointerDown) {
             return;
         }
         chart.options.scales.x.min = startMs;
@@ -397,6 +420,121 @@
             point.y >= area.top && point.y <= area.bottom;
     }
 
+    function distanceToSegment(px, py, ax, ay, bx, by) {
+        const dx = bx - ax;
+        const dy = by - ay;
+        const len2 = dx * dx + dy * dy;
+        let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+        t = Math.max(0, Math.min(1, t));
+        const cx = ax + t * dx;
+        const cy = ay + t * dy;
+        const ddx = px - cx;
+        const ddy = py - cy;
+        return Math.sqrt(ddx * ddx + ddy * ddy);
+    }
+
+    function isOnGraph(point) {
+        if (!chart || !chart.chartArea || !insideChartArea(point)) {
+            return false;
+        }
+        const xValue = chart.scales.x.getValueForPixel(point.x);
+        if (xValue === undefined || xValue === null || isNaN(xValue)) {
+            return false;
+        }
+        const threshold = 12;
+        let best = Infinity;
+        chart.data.datasets.forEach(function (dataset) {
+            if (dataset.hidden || !dataset.data || !dataset.data.length) {
+                return;
+            }
+            const data = dataset.data;
+            let low = 0;
+            let high = data.length - 1;
+            while (low < high) {
+                const mid = Math.floor((low + high) / 2);
+                if (data[mid].x < xValue) {
+                    low = mid + 1;
+                } else {
+                    high = mid;
+                }
+            }
+            let index = low;
+            if (index > 0 &&
+                Math.abs(data[index - 1].x - xValue) < Math.abs(data[index].x - xValue)) {
+                index -= 1;
+            }
+            const candidates = [index];
+            if (index > 0) {
+                candidates.push(index - 1);
+            }
+            if (index < data.length - 1) {
+                candidates.push(index + 1);
+            }
+            candidates.forEach(function (idx) {
+                const p = data[idx];
+                if (!p || typeof p.y !== "number") {
+                    return;
+                }
+                const px = chart.scales.x.getPixelForValue(p.x);
+                const py = chart.scales.y.getPixelForValue(p.y);
+                const dx = px - point.x;
+                const dy = py - point.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance < best) {
+                    best = distance;
+                }
+            });
+            const startIndex = Math.max(0, index - 1);
+            const endIndex = Math.min(data.length - 1, index + 1);
+            for (let k = startIndex; k < endIndex; k += 1) {
+                const a = data[k];
+                const b = data[k + 1];
+                if (!a || !b || typeof a.y !== "number" || typeof b.y !== "number") {
+                    continue;
+                }
+                const ax = chart.scales.x.getPixelForValue(a.x);
+                const ay = chart.scales.y.getPixelForValue(a.y);
+                const bx = chart.scales.x.getPixelForValue(b.x);
+                const by = chart.scales.y.getPixelForValue(b.y);
+                const d = distanceToSegment(point.x, point.y, ax, ay, bx, by);
+                if (d < best) {
+                    best = d;
+                }
+            }
+        });
+        return best <= threshold;
+    }
+
+    function beginPan(point) {
+        const xScale = chart.scales.x;
+        const yScale = chart.scales.y;
+        pointerDown = {
+            mode: "pan",
+            startX: point.x,
+            startY: point.y,
+            startXMin: xScale.min,
+            startXMax: xScale.max,
+            startYMin: yScale.min,
+            startYMax: yScale.max,
+            areaWidth: chart.chartArea.right - chart.chartArea.left,
+            areaHeight: chart.chartArea.bottom - chart.chartArea.top
+        };
+        hideActiveReadout();
+        stopLiveMode();
+    }
+
+    function schedulePanUpdate() {
+        if (panFrame !== null) {
+            return;
+        }
+        panFrame = window.requestAnimationFrame(function () {
+            panFrame = null;
+            if (chart) {
+                chart.update("none");
+            }
+        });
+    }
+
     function onMouseDown(event) {
         if (event.button !== 0) {
             return;
@@ -406,10 +544,13 @@
             hideActiveReadout();
             return;
         }
-        pointerDown = { x: point.x, y: point.y, moved: false };
-        activePoint = { x: point.x, y: point.y };
-        canvas.style.cursor = "grabbing";
-        refreshActiveReadout();
+        if (isOnGraph(point)) {
+            pointerDown = { mode: "readout", x: point.x, y: point.y };
+            activePoint = { x: point.x, y: point.y };
+            refreshActiveReadout();
+        } else {
+            beginPan(point);
+        }
     }
 
     function onMouseMove(event) {
@@ -417,8 +558,24 @@
             return;
         }
         const point = toCanvasPoint(event);
-        if (Math.abs(point.x - pointerDown.x) > 3 || Math.abs(point.y - pointerDown.y) > 3) {
-            pointerDown.moved = true;
+        if (pointerDown.mode === "pan") {
+            const dx = point.x - pointerDown.startX;
+            const rangeX = pointerDown.startXMax - pointerDown.startXMin;
+            if (pointerDown.areaWidth > 0 && rangeX > 0) {
+                const dt = (dx / pointerDown.areaWidth) * rangeX;
+                chart.options.scales.x.min = pointerDown.startXMin - dt;
+                chart.options.scales.x.max = pointerDown.startXMax - dt;
+                userAdjustedX = true;
+            }
+            const dy = point.y - pointerDown.startY;
+            const rangeY = pointerDown.startYMax - pointerDown.startYMin;
+            if (pointerDown.areaHeight > 0 && rangeY > 0) {
+                const dv = (dy / pointerDown.areaHeight) * rangeY;
+                chart.options.scales.y.min = pointerDown.startYMin + dv;
+                chart.options.scales.y.max = pointerDown.startYMax + dv;
+            }
+            schedulePanUpdate();
+            return;
         }
         const area = chart.chartArea;
         activePoint = {
@@ -433,7 +590,6 @@
             return;
         }
         pointerDown = null;
-        canvas.style.cursor = "grab";
         hideActiveReadout();
     }
 
@@ -459,7 +615,7 @@
                 borderWidth: 2,
                 pointRadius: 0,
                 pointHitRadius: 8,
-                tension: 0.15,
+                tension: 0,
                 spanGaps: true,
                 hidden: false
             };
@@ -473,9 +629,10 @@
         if (total === 0) {
             setStatus("Нет данных за выбранный период.");
         } else {
-            setStatus("Точек на графике: " + total + ". Обновлено: " + formatTime(new Date()));
+            setUpdated();
         }
-        periodEl.textContent = (startInput.value || "—") + "  →  " + (endInput.value || "—");
+        periodEl.textContent = formatPeriodValue(startInput.value) +
+            " - " + formatPeriodValue(endInput.value);
     }
 
     function fetchData(resetAfter, displayRange) {
@@ -532,10 +689,16 @@
     }
 
     function updateReportDate() {
-        reportDateEl.textContent = new Date().toLocaleString("ru-RU");
+        const now = new Date();
+        reportDateEl.textContent = pad(now.getDate()) + "." + pad(now.getMonth() + 1) + "." +
+            now.getFullYear() + " " +
+            pad(now.getHours()) + ":" + pad(now.getMinutes()) + ":" + pad(now.getSeconds());
     }
 
     function liveTick() {
+        if (pointerDown) {
+            return;
+        }
         const span = currentSpanMs();
         const now = Date.now();
         const startMs = now - span;
@@ -545,9 +708,16 @@
         fetchData(false, { startMs: startMs, endMs: displayEndMs });
     }
 
+    function setLiveButtonState(active) {
+        if (!liveBtn) {
+            return;
+        }
+        liveBtn.classList.toggle("active", active);
+        liveBtn.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+
     function startLiveMode() {
-        liveEl.checked = true;
-        liveEl.classList.add("active");
+        setLiveButtonState(true);
         hideActiveReadout();
         resetZoom();
         userAdjustedX = false;
@@ -559,8 +729,7 @@
     }
 
     function stopLiveMode() {
-        liveEl.checked = false;
-        liveEl.classList.remove("active");
+        setLiveButtonState(false);
         if (liveTimer) {
             clearInterval(liveTimer);
             liveTimer = null;
@@ -568,10 +737,10 @@
     }
 
     function toggleLiveMode() {
-        if (liveEl.checked) {
-            startLiveMode();
-        } else {
+        if (liveTimer) {
             stopLiveMode();
+        } else {
+            startLiveMode();
         }
     }
 
@@ -581,28 +750,22 @@
     }
 
     document.getElementById("build-chart").addEventListener("click", buildReport);
-    document.querySelectorAll(".quick-range .btn").forEach(function (button) {
-        button.addEventListener("click", function () {
-            setHours(Number(button.dataset.hours));
-            buildReport();
-        });
-    });
     toggles.forEach(function (toggle) {
         toggle.addEventListener("change", applyVisibility);
     });
-    autoscaleEl.addEventListener("change", function () {
-        applyScaleOptions();
-        if (chart) {
-            chart.update("none");
-        }
-    });
-    gridEl.addEventListener("change", function () {
-        applyScaleOptions();
-        if (chart) {
-            chart.update("none");
-        }
-    });
-    liveEl.addEventListener("change", toggleLiveMode);
+    if (gridEl) {
+        gridEl.addEventListener("click", function () {
+            const on = gridEl.classList.toggle("active");
+            gridEl.setAttribute("aria-pressed", on ? "true" : "false");
+            applyScaleOptions();
+            if (chart) {
+                chart.update("none");
+            }
+        });
+    }
+    if (liveBtn) {
+        liveBtn.addEventListener("click", toggleLiveMode);
+    }
     document.getElementById("reset-zoom").addEventListener("click", function () {
         resetZoom();
     });
@@ -622,7 +785,6 @@
         hideActiveReadout();
     });
     canvas.addEventListener("dblclick", resetZoom);
-    canvas.style.cursor = "grab";
 
     updateReportDate();
     loadDeviceConfig().then(startLiveMode);

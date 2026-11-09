@@ -10,18 +10,27 @@
 <body>
 <header class="topbar">
     <a class="brand" href="{% url 'dashboard' %}">MultiRegistrator<span>Web</span></a>
-    <nav>
-        <a href="{% url 'dashboard' %}">Устройства</a>
-        <a href="/admin/" target="_blank" rel="noopener">Настройки</a>
-        <a href="{% url 'api-health' %}" target="_blank" rel="noopener">API</a>
+    <nav class="user-nav">
+        {% if user.is_authenticated %}
+            {% if user.is_staff %}
+            <a class="username is-admin" href="{% url 'admin:index' %}">{{ user.get_username }}</a>
+            {% else %}
+            <span class="username">{{ user.get_username }}</span>
+            {% endif %}
+            <form class="logout-form" method="post" action="{% url 'logout' %}">
+                {% csrf_token %}
+                <button class="btn tiny" type="submit">Выход</button>
+            </form>
+        {% else %}
+            {% if request.resolver_match.url_name != "login" %}
+            <a class="btn tiny" href="{% url 'login' %}">Вход</a>
+            {% endif %}
+        {% endif %}
     </nav>
 </header>
 <main class="page">
     {% block content %}{% endblock %}
 </main>
-<footer class="footer">
-    MultiRegistrator Web — регистратор данных Modbus TCP
-</footer>
 {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -1,0 +1,21 @@
+{% extends "devices/base.html" %}
+{% block title %}Вход — MultiRegistrator Web{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+    <form class="auth-card" method="post" action="{% url 'login' %}">
+        {% csrf_token %}
+        <h1>Вход</h1>
+        {% if form.errors %}
+        <p class="auth-error">Неверный логин или пароль.</p>
+        {% endif %}
+        <label>Логин
+            {{ form.username }}
+        </label>
+        <label>Пароль
+            {{ form.password }}
+        </label>
+        <input type="hidden" name="next" value="{{ next }}">
+        <button class="btn primary full" type="submit">Войти</button>
+    </form>
+</div>
+{% endblock %}
