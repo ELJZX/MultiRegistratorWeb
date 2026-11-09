@@ -1,0 +1,74 @@
+{% extends "devices/base.html" %}
+{% block title %}Устройства — MultiRegistrator Web{% endblock %}
+{% block content %}
+<div class="section-head">
+    <div>
+        <h1>Устройства</h1>
+        <p class="muted">Состояние опроса и последние считанные значения</p>
+    </div>
+    <div class="actions">
+        <a class="btn primary" href="{% url 'admin:devices_device_add' %}">Добавить устройство</a>
+        <button class="btn" id="refresh-btn" type="button">Обновить</button>
+    </div>
+</div>
+
+{% if rows %}
+<div class="device-grid">
+    {% for row in rows %}
+    {% with device=row.device %}
+    <article class="device-card {{ device.status_css }}">
+        <div class="device-card-head">
+            <div>
+                <h2><a href="{% url 'device-detail' device.pk %}">{{ device.name }}</a></h2>
+                <p class="muted">{{ device.host }}:{{ device.port }} · ID {{ device.unit_id }}</p>
+            </div>
+            <span class="badge {{ device.status_css }}">
+                {% if not device.enabled %}Отключено{% elif device.online %}В сети{% else %}Недоступно{% endif %}
+            </span>
+        </div>
+        <dl class="device-meta">
+            <div><dt>Период опроса</dt><dd>{{ device.poll_interval }} с</dd></div>
+            <div><dt>Задержка</dt><dd>{{ device.latency_ms|floatformat:0 }} мс</dd></div>
+            <div><dt>Последний успех</dt><dd>{% if device.last_success %}{{ device.last_success|date:"d.m.Y H:i:s" }}{% else %}—{% endif %}</dd></div>
+        </dl>
+        {% if row.latest %}
+        <ul class="channel-values">
+            {% for item in row.latest %}
+            <li>
+                <span class="channel-name">{{ item.name }}</span>
+                <span class="channel-value">
+                    {% if item.value is not None %}{{ item.value|floatformat:2 }}{% else %}—{% endif %}
+                    <small>{{ item.unit }}</small>
+                </span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="muted">Каналы не настроены.</p>
+        {% endif %}
+        {% if device.last_error and not device.online %}
+        <p class="error-text" title="{{ device.last_error }}">{{ device.last_error|truncatechars:120 }}</p>
+        {% endif %}
+        <div class="device-card-actions">
+            <a class="btn small" href="{% url 'device-detail' device.pk %}">График</a>
+            <a class="btn small" href="{% url 'admin:devices_device_change' device.pk %}">Изменить</a>
+        </div>
+    </article>
+    {% endwith %}
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <h2>Устройства ещё не добавлены</h2>
+    <p>Добавьте устройство и каналы в настройках, затем запустите опрос.</p>
+    <a class="btn primary" href="{% url 'admin:devices_device_add' %}">Добавить устройство</a>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('refresh-btn').addEventListener('click', function () {
+    window.location.reload();
+});
+</script>
+{% endblock %}

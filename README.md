@@ -1,0 +1,174 @@
+# MultiRegistrator Web
+
+Веб-реализация регистратора данных **MultiRegistrator** на **Django + PostgreSQL**.
+Приложение опрашивает устройства по протоколу **Modbus TCP**, хранит измерения,
+показывает состояние устройств в веб-интерфейсе, строит графики и предоставляет
+HTTP API для интеграций.
+
+Реализован основной функционал оригинального проекта
+[ELJZX/MultiRegistrator](https://github.com/ELJZX/MultiRegistrator):
+
+- список устройств с индикацией состояния (зелёный — в сети, красный — недоступно);
+- настройка устройств: имя, IP/хост, порт, Modbus ID, период опроса, таймаут, повторы;
+- карта регистров (каналов): имя, адрес, функция, тип данных, масштаб, единица,
+  порядок слов;
+- фоновый опрос устройств с объединением соседних регистров в минимальное число
+  запросов и одним соединением на устройство;
+- хранение измерений в PostgreSQL и/или в CSV-архиве (`files` / `database` / `both`);
+- HTTP API, совместимое по смыслу с API оригинального сервера;
+- веб-страница графика: период, каналы, режим реального времени, автомасштаб,
+  сетка, печать/PDF;
+- эмулятор Modbus TCP устройства для проверки без реального оборудования.
+
+## Архитектура
+
+```
+multiregistrator_web/   настройки Django
+devices/                приложение: модели, Modbus, опрос, API, веб-интерфейс
+  management/commands/  poll_devices, test_device, seed_demo
+  templates/devices/    страницы списка устройств и графика
+  static/devices/       стили и логика графиков (Chart.js)
+archive/                CSV-архив (если ARCHIVE_STORAGE=files|both)
+```
+
+В Docker поднимаются отдельные сервисы:
+
+- `db` — PostgreSQL 16;
+- `web` — Django + Gunicorn (веб-интерфейс и API);
+- `poller` — отдельный процесс `python manage.py poll_devices` (фоновый опрос);
+- `testdevice` и `seed-demo` — опциональный демо-профиль с эмулятором.
+
+Опрос вынесен в отдельный процесс, чтобы веб-сервер мог работать в несколько
+воркеров, а устройства опрашивались ровно один раз.
+
+## Быстрый старт в Docker
+
+```bash
+docker compose up -d --build
+```
+
+Интерфейс: http://localhost:8080/  
+Админка (добавление устройств): http://localhost:8080/admin/  
+API: http://localhost:8080/api/health
+
+Создать администратора:
+
+```bash
+docker compose exec web python manage.py createsuperuser
+```
+
+### Демо без реального оборудования
+
+Запустить эмулятор устройства и добавить его в базу:
+
+```bash
+docker compose --profile demo up -d testdevice
+docker compose run --rm web python manage.py seed_demo --host testdevice --port 5020
+```
+
+После этого на странице http://localhost:8080/ появится «Демо-устройство»,
+а сервис `poller` начнёт писать показания (температура, влажность, счётчик, реле).
+Через несколько секунд данные появятся на графике устройства.
+
+## Локальный запуск без Docker
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py createsuperuser
+python manage.py runserver
+```
+
+Во втором терминале запустите опрос:
+
+```bash
+python manage.py poll_devices
+```
+
+Для локальной проверки без оборудования:
+
+```bash
+python manage.py seed_demo --host 127.0.0.1 --port 5020
+python manage.py test_device --port 5020
+python manage.py poll_devices
+```
+
+По умолчанию без переменной `DB_HOST` используется SQLite (`db.sqlite3`).
+
+## Хранение данных
+
+Режим задаётся переменной `ARCHIVE_STORAGE`:
+
+| Значение | Поведение |
+| --- | --- |
+| `database` | только PostgreSQL (по умолчанию) |
+| `files` | только CSV-файлы в `archive/<host>/<host>_<дата>.txt` |
+| `both` | CSV-файлы + PostgreSQL |
+
+CSV-формат совместим с оригинальным проектом:
+
+```
+archive/
+    192.168.1.10/
+        192.168.1.10_2026-11-09.txt
+```
+
+```
+timestamp,temperature,humidity
+2026-11-09 12:00:00.123,25.4,55.0
+```
+
+## HTTP API
+
+| Метод | Путь | Описание |
+| --- | --- | --- |
+| GET | `/api/health` | проверка доступности |
+| GET | `/api/info` | информация о приложении |
+| GET | `/api/devices` | список устройств и их состояние |
+| GET | `/api/devices/{id}` | одно устройство (по id или host) |
+| GET | `/api/devices/{id}/latest` | последние считанные значения |
+| GET | `/api/devices/{id}/channels` | список каналов |
+| GET | `/api/devices/{id}/dates` | доступные даты архива |
+| GET | `/api/devices/{id}/data?start=&end=&channels=` | данные за период |
+
+`start` и `end` — ISO-дата/время. `channels` — имена каналов через запятую.
+
+## Переменные окружения
+
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `DJANGO_SECRET_KEY` | dev-ключ | секретный ключ Django |
+| `DJANGO_DEBUG` | `1` | режим отладки |
+| `DJANGO_ALLOWED_HOSTS` | `*` | разрешённые хосты (через запятую) |
+| `DJANGO_TIME_ZONE` | `UTC` | часовой пояс |
+| `DB_HOST` | — | если задан, используется PostgreSQL |
+| `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_PORT` | — | параметры PostgreSQL |
+| `ARCHIVE_STORAGE` | `database` | `files`, `database` или `both` |
+| `ARCHIVE_DIR` | `./archive` | каталог CSV-архива |
+| `POLLER_TICK` | `0.2` | шаг цикла опроса, с |
+| `POLLER_RELOAD_INTERVAL` | `5.0` | перечитывание списка устройств, с |
+| `WEB_PORT` | `8080` | порт веб-интерфейса в compose |
+| `POSTGRES_PORT` | `5434` | порт PostgreSQL на хосте |
+
+## Тесты
+
+```bash
+pip install -r requirements.txt
+python manage.py test
+```
+
+Тесты покрывают декодирование регистров, объединение запросов, модели, хранение,
+опрос, API, эмулятор и интеграционное чтение через `pymodbus`.
+
+## Отличия от настольной версии
+
+- Клиент и сервер объединены в веб-приложение; графики строятся в браузере
+  (Chart.js), печать/PDF — через печать браузера.
+- Вместо JSON-файлов конфигурации устройства хранятся в БД и редактируются в
+  Django Admin.
+- Добавлены отдельный процесс опроса, PostgreSQL-хранилище и Docker-сборка.
+
+Дальнейшая доработка: авторизация, запись регистров, экспорт отчётов, несколько
+источников данных и расширенная визуализация.

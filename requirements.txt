@@ -1,0 +1,5 @@
+Django>=5.0,<6.0
+pymodbus>=3.6
+psycopg[binary]>=3.1
+gunicorn>=21.2
+whitenoise>=6.6

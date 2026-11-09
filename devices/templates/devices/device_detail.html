@@ -1,0 +1,92 @@
+{% extends "devices/base.html" %}
+{% load static %}
+{% block title %}{{ device.name }} — MultiRegistrator Web{% endblock %}
+{% block content %}
+<div class="section-head">
+    <div>
+        <a class="back-link" href="{% url 'dashboard' %}">← Назад к устройствам</a>
+        <h1>{{ device.name }}</h1>
+        <p class="muted">{{ device.host }}:{{ device.port }} · Modbus ID {{ device.unit_id }}</p>
+    </div>
+    <span class="badge {{ device.status_css }}">
+        {% if not device.enabled %}Отключено{% elif device.online %}В сети{% else %}Недоступно{% endif %}
+    </span>
+</div>
+
+<div class="chart-layout" id="chart-app"
+     data-device-id="{{ device.pk }}"
+     data-default-start="{{ default_start }}"
+     data-default-end="{{ default_end }}">
+    <aside class="chart-panel">
+        <section class="panel-block">
+            <h3>Период</h3>
+            <label>Начало
+                <input type="datetime-local" id="period-start" value="{{ default_start }}">
+            </label>
+            <label>Конец
+                <input type="datetime-local" id="period-end" value="{{ default_end }}">
+            </label>
+            <div class="quick-range">
+                <button class="btn tiny" type="button" data-hours="1">1 ч</button>
+                <button class="btn tiny" type="button" data-hours="6">6 ч</button>
+                <button class="btn tiny" type="button" data-hours="24">24 ч</button>
+            </div>
+            <button class="btn primary full" id="build-chart" type="button">Сформировать график</button>
+        </section>
+
+        <section class="panel-block">
+            <h3>Каналы</h3>
+            <div class="channel-list">
+                {% for channel in channels %}
+                <label class="channel-check">
+                    <input type="checkbox" class="channel-toggle" value="{{ channel.name }}" checked>
+                    <span>{{ channel.name }}</span>
+                    {% if channel.unit %}<small>{{ channel.unit }}</small>{% endif %}
+                </label>
+                {% empty %}
+                <p class="muted">Каналы не настроены.</p>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="panel-block">
+            <h3>Настройки</h3>
+            <label class="switch-row">
+                <input type="checkbox" id="live-mode">
+                <span>Режим реального времени</span>
+            </label>
+            <label class="switch-row">
+                <input type="checkbox" id="autoscale" checked>
+                <span>Автомасштаб</span>
+            </label>
+            <label class="switch-row">
+                <input type="checkbox" id="show-grid" checked>
+                <span>Показывать сетку</span>
+            </label>
+        </section>
+
+        <section class="panel-block">
+            <h3>Печать</h3>
+            <button class="btn full" id="print-chart" type="button">Печать / PDF</button>
+        </section>
+    </aside>
+
+    <section class="chart-area">
+        <div class="chart-header">
+            <h2>{{ device.name }}</h2>
+            <p id="chart-period" class="muted"></p>
+        </div>
+        <div class="chart-canvas-wrap">
+            <canvas id="chart-canvas"></canvas>
+        </div>
+        <div class="chart-legend" id="chart-legend"></div>
+        <p class="chart-footer">Дата формирования отчёта: <span id="report-date"></span></p>
+        <div class="chart-status" id="chart-status"></div>
+    </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{% static 'devices/vendor/chart.umd.min.js' %}"></script>
+<script src="{% static 'devices/vendor/chartjs-adapter-date-fns.bundle.min.js' %}"></script>
+<script src="{% static 'devices/chart.js' %}"></script>
+{% endblock %}

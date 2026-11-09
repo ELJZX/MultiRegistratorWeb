@@ -1,0 +1,101 @@
+x-app-env: &app-env
+  DJANGO_DEBUG: "0"
+  DJANGO_SECRET_KEY: "${DJANGO_SECRET_KEY:-change-me-in-production}"
+  DJANGO_ALLOWED_HOSTS: "${DJANGO_ALLOWED_HOSTS:-*}"
+  DJANGO_TIME_ZONE: "${DJANGO_TIME_ZONE:-Europe/Moscow}"
+  DB_HOST: db
+  DB_PORT: "5432"
+  DB_NAME: "${POSTGRES_DB:-multiregistrator}"
+  DB_USER: "${POSTGRES_USER:-multiregistrator}"
+  DB_PASSWORD: "${POSTGRES_PASSWORD:-multiregistrator}"
+  ARCHIVE_STORAGE: "${ARCHIVE_STORAGE:-database}"
+  POLLER_TICK: "0.2"
+  POLLER_RELOAD_INTERVAL: "5.0"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: multiregistrator-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-multiregistrator}"
+      POSTGRES_USER: "${POSTGRES_USER:-multiregistrator}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-multiregistrator}"
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-multiregistrator} -d ${POSTGRES_DB:-multiregistrator}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  web:
+    build: .
+    image: multiregistrator-web:latest
+    container_name: multiregistrator-web
+    restart: unless-stopped
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8080}:8000"
+    volumes:
+      - archive-data:/app/archive
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
+             gunicorn multiregistrator_web.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120 --access-logfile -"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health').status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  poller:
+    build: .
+    image: multiregistrator-web:latest
+    container_name: multiregistrator-poller
+    restart: unless-stopped
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    volumes:
+      - archive-data:/app/archive
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py poll_devices"
+
+  testdevice:
+    image: multiregistrator-web:latest
+    container_name: multiregistrator-testdevice
+    profiles: ["demo"]
+    restart: unless-stopped
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${TESTDEVICE_PORT:-5020}:5020"
+    command: python manage.py test_device --host 0.0.0.0 --port 5020
+
+  seed-demo:
+    image: multiregistrator-web:latest
+    profiles: ["demo"]
+    environment: *app-env
+    depends_on:
+      web:
+        condition: service_healthy
+      testdevice:
+        condition: service_started
+    command: python manage.py seed_demo --host testdevice --port 5020
+
+volumes:
+  postgres-data:
+  archive-data:
