@@ -47,6 +47,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "devices.middleware.UserActionLogMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
@@ -129,6 +130,8 @@ if ARCHIVE_STORAGE not in ("files", "database", "both"):
 POLLER_TICK = float(os.environ.get("POLLER_TICK", "0.2"))
 POLLER_RELOAD_INTERVAL = float(os.environ.get("POLLER_RELOAD_INTERVAL", "5.0"))
 MODBUS_MAX_REGISTERS = int(os.environ.get("MODBUS_MAX_REGISTERS", "125"))
+
+AUDIT_LOG_ENABLED = _env_bool("AUDIT_LOG_ENABLED", True)
 
 LOG_LEVEL = os.environ.get("DJANGO_LOG_LEVEL", "INFO")
 LOGGING = {

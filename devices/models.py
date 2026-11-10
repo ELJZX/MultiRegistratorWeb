@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -132,3 +133,64 @@ class Measurement(models.Model):
 
     def __str__(self):
         return f"{self.device_id} {self.channel}={self.value} @ {self.measured_at}"
+
+
+class UserEventLog(models.Model):
+    class Action(models.TextChoices):
+        VIEW = "view", "Просмотр страницы"
+        CHART = "chart", "Формирование графика"
+        PRINT = "print", "Печать / PDF"
+        LOGIN = "login", "Вход"
+        LOGOUT = "logout", "Выход"
+        LOGIN_FAILED = "login_failed", "Неудачный вход"
+        API = "api", "Запрос API"
+        OTHER = "other", "Другое"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="event_logs",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Пользователь",
+    )
+    username = models.CharField("Логин", max_length=150, blank=True, default="")
+    action = models.CharField(
+        "Действие",
+        max_length=32,
+        choices=Action.choices,
+        default=Action.OTHER,
+        db_index=True,
+    )
+    device = models.ForeignKey(
+        Device,
+        related_name="event_logs",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Устройство",
+    )
+    description = models.TextField("Описание", blank=True, default="")
+    details = models.JSONField("Детали", default=dict, blank=True)
+    ip_address = models.GenericIPAddressField("IP-адрес", null=True, blank=True)
+    user_agent = models.CharField("Браузер", max_length=512, blank=True, default="")
+    path = models.CharField("Путь", max_length=512, blank=True, default="")
+    method = models.CharField("Метод", max_length=10, blank=True, default="")
+    status_code = models.PositiveSmallIntegerField("HTTP-статус", null=True, blank=True)
+    duration_ms = models.FloatField("Длительность, мс", null=True, blank=True)
+    created_at = models.DateTimeField("Создано", auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Событие пользователя"
+        verbose_name_plural = "Журнал действий пользователей"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "created_at"], name="eventlog_user_time_idx"),
+            models.Index(fields=["action", "created_at"], name="eventlog_action_time_idx"),
+            models.Index(fields=["device", "created_at"], name="eventlog_device_time_idx"),
+        ]
+
+    def __str__(self):
+        when = self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else "—"
+        who = self.username or (self.user.get_username() if self.user else "аноним")
+        return f"{when} {who} {self.action}"

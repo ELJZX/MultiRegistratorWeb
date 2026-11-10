@@ -1,12 +1,15 @@
+import json
+import time
 from datetime import timedelta
 
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
 
 from . import storage
-from .models import Device
+from .audit import log_event
+from .models import Device, UserEventLog
 from .polling import status_payload
 
 VERSION = "1.0.0"
@@ -143,7 +146,9 @@ def api_dates(request, device_id):
 
 @require_GET
 def api_data(request, device_id):
+    started = time.perf_counter()
     device = _resolve_device(device_id)
+    reason = (request.GET.get("reason") or "manual").strip().lower()
     end = storage.parse_datetime(request.GET.get("end"), default=timezone.now())
     start = storage.parse_datetime(request.GET.get("start"), default=end - timedelta(hours=24))
     if start > end:
@@ -167,4 +172,57 @@ def api_data(request, device_id):
             "times": [timestamp.isoformat() for timestamp in item.times],
             "values": item.values,
         }
+
+    if reason != "live":
+        points = sum(len(item["times"]) for item in payload["channels"].values())
+        log_event(
+            UserEventLog.Action.CHART,
+            request=request,
+            device=device,
+            description=f"Формирование графика: {start.isoformat()} — {end.isoformat()}",
+            details={
+                "reason": reason,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "channels": wanted,
+                "points": points,
+            },
+            status_code=200,
+            duration_ms=(time.perf_counter() - started) * 1000,
+        )
     return JsonResponse(payload)
+
+
+@require_POST
+def api_log_print(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except (ValueError, UnicodeDecodeError):
+        payload = {}
+
+    device = None
+    raw_id = payload.get("device_id")
+    if raw_id:
+        try:
+            device = Device.objects.filter(pk=int(raw_id)).first()
+        except (TypeError, ValueError):
+            device = None
+
+    channels = payload.get("channels") or []
+    if not isinstance(channels, list):
+        channels = [channels]
+
+    details = {
+        "start": str(payload.get("start", ""))[:64],
+        "end": str(payload.get("end", ""))[:64],
+        "channels": [str(item)[:150] for item in channels][:100],
+    }
+    log_event(
+        UserEventLog.Action.PRINT,
+        request=request,
+        device=device,
+        description="Печать / PDF графика",
+        details=details,
+        status_code=200,
+    )
+    return JsonResponse({"status": "ok"})

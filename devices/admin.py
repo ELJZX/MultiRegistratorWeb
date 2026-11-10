@@ -5,7 +5,7 @@ from django.utils.html import format_html
 
 from .discovery import discover_channels, find_unit_ids
 from .modbus import ModbusReadError, ModbusReader, RegisterFunction
-from .models import Channel, Device, Measurement
+from .models import Channel, Device, Measurement, UserEventLog
 from .polling import build_spec
 
 
@@ -234,3 +234,32 @@ class MeasurementAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+@admin.register(UserEventLog)
+class UserEventLogAdmin(admin.ModelAdmin):
+    list_display = (
+        "created_at",
+        "username",
+        "action",
+        "device",
+        "description",
+        "ip_address",
+        "status_code",
+        "duration_ms",
+    )
+    list_filter = ("action", "created_at")
+    search_fields = ("username", "description", "path", "ip_address", "device__name")
+    date_hierarchy = "created_at"
+    ordering = ("-created_at",)
+    list_select_related = ("device", "user")
+    readonly_fields = tuple(field.name for field in UserEventLog._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return True

@@ -23,6 +23,7 @@
     const liveBtn = document.getElementById("live-toggle");
     const gridEl = document.getElementById("grid-toggle");
     const toggles = Array.from(document.querySelectorAll(".channel-toggle"));
+    const csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content || "";
 
     const palette = [
         "#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed",
@@ -674,7 +675,7 @@
             " - " + formatPeriodValue(endInput.value);
     }
 
-    function fetchData(resetAfter, displayRange) {
+    function fetchData(reason, resetAfter, displayRange) {
         const start = toIso(startInput.value);
         const end = toIso(endInput.value);
         if (!start || !end) {
@@ -682,7 +683,8 @@
             return Promise.resolve();
         }
         const url = "/api/devices/" + encodeURIComponent(deviceId) + "/data?start=" +
-            encodeURIComponent(start) + "&end=" + encodeURIComponent(end);
+            encodeURIComponent(start) + "&end=" + encodeURIComponent(end) +
+            "&reason=" + encodeURIComponent(reason || "manual");
         setStatus("Загрузка данных...");
         return fetch(url, { headers: { "Accept": "application/json" } })
             .then(function (response) {
@@ -744,7 +746,7 @@
         const displayEndMs = now + span * LIVE_PADDING;
         startInput.value = toLocalInput(new Date(startMs));
         endInput.value = toLocalInput(new Date(now));
-        fetchData(false, { startMs: startMs, endMs: displayEndMs });
+        fetchData("live", false, { startMs: startMs, endMs: displayEndMs });
     }
 
     function setLiveButtonState(active) {
@@ -785,7 +787,34 @@
 
     function buildReport() {
         stopLiveMode();
-        fetchData(true, null);
+        fetchData("manual", true, null);
+    }
+
+    function logPrint() {
+        const channels = toggles
+            .filter(function (item) {
+                return item.checked;
+            })
+            .map(function (item) {
+                return item.value;
+            });
+        const body = JSON.stringify({
+            device_id: deviceId,
+            start: startInput.value,
+            end: endInput.value,
+            channels: channels
+        });
+        const headers = { "Content-Type": "application/json" };
+        if (csrfToken) {
+            headers["X-CSRFToken"] = csrfToken;
+        }
+        fetch("/api/log/print", {
+            method: "POST",
+            headers: headers,
+            body: body,
+            keepalive: true
+        }).catch(function () {
+        });
     }
 
     document.getElementById("build-chart").addEventListener("click", buildReport);
@@ -809,6 +838,7 @@
         resetZoom();
     });
     document.getElementById("print-chart").addEventListener("click", function () {
+        logPrint();
         updateReportDate();
         if (chart) {
             chart.resize();

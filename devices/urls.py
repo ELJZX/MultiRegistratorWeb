@@ -13,4 +13,5 @@ urlpatterns = [
     path("api/devices/<str:device_id>/channels", views.api_channels, name="api-channels"),
     path("api/devices/<str:device_id>/dates", views.api_dates, name="api-dates"),
     path("api/devices/<str:device_id>/data", views.api_data, name="api-data"),
+    path("api/log/print", views.api_log_print, name="api-log-print"),
 ]
