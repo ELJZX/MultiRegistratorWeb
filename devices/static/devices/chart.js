@@ -305,32 +305,56 @@
             if (!(span >= 48 * 3600 * 1000)) {
                 return;
             }
-            const tickOpts = scale.options.ticks || {};
-            const font = tickOpts.font || {};
-            const labelSize = typeof font.size === "number" ? font.size : 12;
-            const lineHeight = typeof font.lineHeight === "number" ? font.lineHeight : labelSize;
-            const padding = typeof tickOpts.padding === "number" ? tickOpts.padding : 0;
-            const dateY = scale.top + padding + lineHeight / 2 + 1;
+            const items = typeof scale.getLabelItems === "function" ? scale.getLabelItems() : null;
+            if (!items || !items.length) {
+                return;
+            }
             const ctx = chartInstance.ctx;
+            const firstFont = items[0].font || {};
             ctx.save();
             ctx.fillStyle = "#6e6e73";
-            ctx.font = "9px " + (font.family || "sans-serif");
+            ctx.font = "9px " + (firstFont.family || "sans-serif");
             ctx.textAlign = "center";
             ctx.textBaseline = "top";
-            scale.ticks.forEach(function (tick, index) {
-                if (!tick || tick.value === undefined || !tick.label) {
+            items.forEach(function (item, index) {
+                const tick = scale.ticks[index];
+                if (!tick || tick.value === undefined) {
                     return;
                 }
-                const x = scale.getPixelForTick(index);
+                const label = item.label;
+                const text = Array.isArray(label) ? label.join("") : String(label || "");
+                if (!text) {
+                    return;
+                }
+                const opts = item.options || {};
+                const translation = opts.translation || [0, 0];
+                const x = translation[0];
                 if (x < chartInstance.chartArea.left || x > chartInstance.chartArea.right) {
                     return;
+                }
+                const fontSize = (item.font && item.font.size) || 12;
+                const anchorY = translation[1] + (item.textOffset || 0);
+                let bottom;
+                switch (opts.textBaseline) {
+                    case "top":
+                        bottom = anchorY + fontSize;
+                        break;
+                    case "bottom":
+                        bottom = anchorY;
+                        break;
+                    case "alphabetic":
+                        bottom = anchorY + fontSize * 0.2;
+                        break;
+                    default:
+                        bottom = anchorY + fontSize / 2;
+                        break;
                 }
                 const date = new Date(tick.value);
                 ctx.fillText(
                     pad(date.getDate()) + ":" + pad(date.getMonth() + 1) + ":" +
                         String(date.getFullYear()).slice(-2),
                     x,
-                    dateY
+                    bottom + 1
                 );
             });
             ctx.restore();
@@ -774,7 +798,7 @@
         let yMin = yOptions.min !== undefined ? yOptions.min : yScale.min;
         let yMax = yOptions.max !== undefined ? yOptions.max : yScale.max;
         const yRange = yMax - yMin;
-        if (isFinite(yMin) && isFinite(yMax) && yRange > 0) {
+        if (factor < 1 && isFinite(yMin) && isFinite(yMax) && yRange > 0) {
             const newYRange = Math.max(1, yRange * factor);
             let yFocal = yScale.getValueForPixel(point.y);
             if (yFocal === undefined || yFocal === null || isNaN(yFocal)) {
@@ -1013,12 +1037,17 @@
     }
 
     function resetToDefault() {
+        stopLiveMode();
         const end = new Date();
         const start = new Date(end.getTime() - 60 * 1000);
+        const span = end.getTime() - start.getTime();
         startInput.value = toLocalInput(start);
         endInput.value = toLocalInput(end);
         userAdjustedX = false;
-        startLiveMode();
+        fetchData("manual", true, {
+            startMs: start.getTime(),
+            endMs: end.getTime() + span * LIVE_PADDING
+        });
     }
 
     function logPrint() {
