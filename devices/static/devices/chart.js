@@ -34,6 +34,7 @@
     const TOP_PADDING = 0.2;
     const MIN_X_SPAN = 1000;
     const MAX_TICK_STEP = 3600 * 1000;
+    const MAX_X_SPAN = 100 * 365 * 24 * 3600 * 1000;
 
     let chart = null;
     let units = {};
@@ -70,17 +71,6 @@
 
     function pad(value) {
         return String(value).padStart(2, "0");
-    }
-
-    function labelStepHours(span) {
-        const totalHours = span / 3600000;
-        if (span >= 48 * 3600 * 1000) {
-            return Math.max(1, Math.ceil(totalHours / 12));
-        }
-        if (span > 24 * 3600 * 1000) {
-            return Math.max(1, Math.ceil(totalHours / 24));
-        }
-        return 1;
     }
 
     function toLocalInput(date) {
@@ -405,8 +395,9 @@
                             const time = scale.options.time;
                             const ticks = scale.options.ticks;
                             if (isFinite(span) && span > MAX_TICK_STEP) {
+                                const spanHours = span / 3600000;
                                 time.unit = "hour";
-                                ticks.stepSize = 1;
+                                ticks.stepSize = Math.max(1, Math.ceil(spanHours / 600));
                                 ticks.autoSkip = false;
                                 ticks.maxTicksLimit = 1000;
                             } else {
@@ -431,8 +422,11 @@
                                     return pad(date.getHours()) + ":" +
                                         pad(date.getMinutes()) + ":" + pad(date.getSeconds());
                                 }
-                                const stepHours = labelStepHours(span);
-                                if (stepHours > 1 && index % stepHours !== 0) {
+                                const gridStep = (this.options.ticks && this.options.ticks.stepSize) || 1;
+                                const gridCount = (span / 3600000) / gridStep;
+                                const targetLabels = span >= 48 * 3600 * 1000 ? 12 : 24;
+                                const labelEvery = Math.max(1, Math.ceil(gridCount / targetLabels));
+                                if (labelEvery > 1 && index % labelEvery !== 0) {
                                     return "";
                                 }
                                 return pad(date.getHours()) + ":" + pad(date.getMinutes());
@@ -781,7 +775,7 @@
         }
         const factor = Math.exp(delta * 0.0015);
         let newRange = range * factor;
-        newRange = Math.max(MIN_X_SPAN, newRange);
+        newRange = Math.max(MIN_X_SPAN, Math.min(MAX_X_SPAN, newRange));
         if (Math.abs(newRange - range) < 0.5) {
             return;
         }
