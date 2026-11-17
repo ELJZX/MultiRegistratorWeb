@@ -948,7 +948,9 @@
         const url = "/api/devices/" + encodeURIComponent(deviceId) + "/data?start=" +
             encodeURIComponent(start) + "&end=" + encodeURIComponent(end) +
             "&reason=" + encodeURIComponent(reason || "manual");
-        setStatus("Загрузка данных...");
+        if (reason !== "live") {
+            setStatus("Загрузка данных...");
+        }
         return fetch(url, { headers: { "Accept": "application/json" } })
             .then(function (response) {
                 if (!response.ok) {
