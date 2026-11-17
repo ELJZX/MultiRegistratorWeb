@@ -32,7 +32,8 @@
 
     const LIVE_PADDING = 0.2;
     const TOP_PADDING = 0.2;
-    const MAX_X_SPAN = 3600 * 1000;
+    const MIN_X_SPAN = 1000;
+    const MAX_TICK_STEP = 3600 * 1000;
 
     let chart = null;
     let units = {};
@@ -244,12 +245,11 @@
                             mode: "x"
                         },
                         zoom: {
-                            wheel: { enabled: true, speed: 0.12 },
+                            wheel: { enabled: false },
                             pinch: { enabled: true },
                             drag: { enabled: false },
                             mode: "x",
                             onZoomComplete: function () {
-                                clampXRange();
                                 userAdjustedX = true;
                             }
                         },
@@ -259,6 +259,22 @@
                 scales: {
                     x: {
                         type: "time",
+                        beforeBuildTicks: function (scale) {
+                            const span = scale.max - scale.min;
+                            const time = scale.options.time;
+                            const ticks = scale.options.ticks;
+                            if (isFinite(span) && span > MAX_TICK_STEP) {
+                                time.unit = "hour";
+                                ticks.stepSize = 1;
+                                ticks.autoSkip = false;
+                                ticks.maxTicksLimit = 1000;
+                            } else {
+                                time.unit = false;
+                                ticks.stepSize = undefined;
+                                ticks.autoSkip = true;
+                                ticks.maxTicksLimit = 16;
+                            }
+                        },
                         grid: { display: true },
                         ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 16 },
                         time: {
@@ -285,26 +301,6 @@
         });
         wrap.dataset.zoom = typeof chart.zoomScale === "function" ? "1" : "0";
         applyScaleOptions();
-    }
-
-    function clampXRange() {
-        if (!chart) {
-            return;
-        }
-        const scale = chart.scales.x;
-        const options = chart.options.scales.x;
-        let min = options.min !== undefined ? options.min : scale.min;
-        let max = options.max !== undefined ? options.max : scale.max;
-        if (!isFinite(min) || !isFinite(max) || max <= min) {
-            return;
-        }
-        if (max - min <= MAX_X_SPAN) {
-            return;
-        }
-        const center = (min + max) / 2;
-        options.min = center - MAX_X_SPAN / 2;
-        options.max = center + MAX_X_SPAN / 2;
-        chart.update("none");
     }
 
     function resetZoom() {
@@ -595,6 +591,47 @@
         });
     }
 
+    function onWheel(event) {
+        const point = toCanvasPoint(event);
+        if (!chart || !insideChartArea(point)) {
+            return;
+        }
+        event.preventDefault();
+        const scale = chart.scales.x;
+        const options = chart.options.scales.x;
+        let min = options.min !== undefined ? options.min : scale.min;
+        let max = options.max !== undefined ? options.max : scale.max;
+        if (!isFinite(min) || !isFinite(max) || max <= min) {
+            return;
+        }
+        const range = max - min;
+        let delta = event.deltaY || 0;
+        if (event.deltaMode === 1) {
+            delta *= 16;
+        } else if (event.deltaMode === 2) {
+            delta *= 100;
+        }
+        delta = Math.max(-300, Math.min(300, delta));
+        if (!delta) {
+            return;
+        }
+        const factor = Math.exp(delta * 0.0015);
+        let newRange = range * factor;
+        newRange = Math.max(MIN_X_SPAN, newRange);
+        if (Math.abs(newRange - range) < 0.5) {
+            return;
+        }
+        let focal = scale.getValueForPixel(point.x);
+        if (focal === undefined || focal === null || isNaN(focal)) {
+            focal = (min + max) / 2;
+        }
+        const ratio = (focal - min) / range;
+        options.min = focal - ratio * newRange;
+        options.max = options.min + newRange;
+        userAdjustedX = true;
+        chart.update("none");
+    }
+
     function onMouseDown(event) {
         if (event.button !== 0) {
             return;
@@ -878,6 +915,7 @@
     });
 
     canvas.addEventListener("mousedown", onMouseDown);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
     window.addEventListener("blur", function () {
