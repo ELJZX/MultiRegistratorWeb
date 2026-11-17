@@ -2,6 +2,7 @@ import json
 import time
 from datetime import timedelta
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, render
@@ -13,7 +14,7 @@ from .audit import log_event
 from .models import Device, UserEventLog
 from .polling import status_payload
 
-VERSION = "1.0.0"
+VERSION = getattr(settings, "APP_VERSION", "1.1.0")
 
 
 def _device_config(device):

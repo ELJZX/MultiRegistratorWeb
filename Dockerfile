@@ -1,5 +1,9 @@
 FROM python:3.12-slim
 
+ARG APP_VERSION=1.1.0
+LABEL org.opencontainers.image.title="MultiRegistrator Web" \
+      org.opencontainers.image.version="${APP_VERSION}"
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
