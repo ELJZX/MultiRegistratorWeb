@@ -24,6 +24,7 @@
     const gridEl = document.getElementById("grid-toggle");
     const toggles = Array.from(document.querySelectorAll(".channel-toggle"));
     const csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).content || "";
+    const utils = window.ChartUtils;
 
     const palette = [
         "#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed",
@@ -34,7 +35,7 @@
     const TOP_PADDING = 0.2;
     const MIN_X_SPAN = 1000;
     const MAX_TICK_STEP = 3600 * 1000;
-    const MAX_X_SPAN = 100 * 365 * 24 * 3600 * 1000;
+    const MAX_X_SPAN = 3 * 24 * 3600 * 1000;
 
     let chart = null;
     let units = {};
@@ -46,6 +47,11 @@
 
     if (!window.Chart) {
         setStatus("Не удалось загрузить библиотеку графиков (Chart.js).", true);
+        return;
+    }
+
+    if (!utils) {
+        setStatus("Не удалось загрузить модуль масштабирования графика.", true);
         return;
     }
 
@@ -397,7 +403,7 @@
                             if (isFinite(span) && span > MAX_TICK_STEP) {
                                 const spanHours = span / 3600000;
                                 time.unit = "hour";
-                                ticks.stepSize = Math.max(1, Math.ceil(spanHours / 600));
+                                ticks.stepSize = utils.gridStepHours(spanHours, 600);
                                 ticks.autoSkip = false;
                                 ticks.maxTicksLimit = 1000;
                             } else {
@@ -425,7 +431,7 @@
                                 const gridStep = (this.options.ticks && this.options.ticks.stepSize) || 1;
                                 const gridCount = (span / 3600000) / gridStep;
                                 const targetLabels = span >= 48 * 3600 * 1000 ? 12 : 24;
-                                const labelEvery = Math.max(1, Math.ceil(gridCount / targetLabels));
+                                const labelEvery = utils.labelEvery(gridCount, targetLabels);
                                 if (labelEvery > 1 && index % labelEvery !== 0) {
                                     return "";
                                 }
@@ -466,11 +472,7 @@
         }
         delete chart.options.scales.x.min;
         delete chart.options.scales.x.max;
-        if (typeof chart.resetZoom === "function") {
-            chart.resetZoom();
-        } else {
-            chart.update("none");
-        }
+        chart.update("none");
         applyScaleOptions();
         chart.update("none");
         userAdjustedX = false;
@@ -774,8 +776,7 @@
             return;
         }
         const factor = Math.exp(delta * 0.0015);
-        let newRange = range * factor;
-        newRange = Math.max(MIN_X_SPAN, Math.min(MAX_X_SPAN, newRange));
+        let newRange = utils.clampSpan(range, factor, MIN_X_SPAN, MAX_X_SPAN);
         if (Math.abs(newRange - range) < 0.5) {
             return;
         }
@@ -784,8 +785,18 @@
             focal = (min + max) / 2;
         }
         const ratio = (focal - min) / range;
-        options.min = focal - ratio * newRange;
-        options.max = options.min + newRange;
+        let newMin = focal - ratio * newRange;
+        let newMax = newMin + newRange;
+        const data = utils.dataBounds(chart.data.datasets);
+        if (data) {
+            const dataSpan = data.max - data.min;
+            const margin = Math.max(dataSpan * 0.2, MIN_X_SPAN);
+            const clamped = utils.clampWindow(newMin, newMax, data.min, data.max, margin);
+            newMin = clamped.min;
+            newMax = clamped.max;
+        }
+        options.min = newMin;
+        options.max = newMax;
 
         const yScale = chart.scales.y;
         const yOptions = chart.options.scales.y;
@@ -841,8 +852,18 @@
             const rangeX = pointerDown.startXMax - pointerDown.startXMin;
             if (pointerDown.areaWidth > 0 && rangeX > 0) {
                 const dt = (dx / pointerDown.areaWidth) * rangeX;
-                chart.options.scales.x.min = pointerDown.startXMin - dt;
-                chart.options.scales.x.max = pointerDown.startXMax - dt;
+                let nextMin = pointerDown.startXMin - dt;
+                let nextMax = pointerDown.startXMax - dt;
+                const data = utils.dataBounds(chart.data.datasets);
+                if (data) {
+                    const dataSpan = data.max - data.min;
+                    const margin = Math.max(dataSpan * 0.2, MIN_X_SPAN);
+                    const clamped = utils.clampWindow(nextMin, nextMax, data.min, data.max, margin);
+                    nextMin = clamped.min;
+                    nextMax = clamped.max;
+                }
+                chart.options.scales.x.min = nextMin;
+                chart.options.scales.x.max = nextMax;
                 userAdjustedX = true;
             }
             const dy = point.y - pointerDown.startY;

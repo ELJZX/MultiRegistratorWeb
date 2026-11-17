@@ -1,0 +1,9 @@
+{
+  "name": "multiregistrator-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "JavaScript unit tests for the chart helpers",
+  "scripts": {
+    "test:js": "node --test devices/tests/js/chart-utils.test.js"
+  }
+}
