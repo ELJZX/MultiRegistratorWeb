@@ -123,7 +123,7 @@
         if (!isNaN(startMs) && !isNaN(endMs) && endMs > startMs) {
             return endMs - startMs;
         }
-        return 3600 * 1000;
+        return 60 * 1000;
     }
 
     function setHours(hours) {
@@ -143,7 +143,19 @@
         return units[name] || "";
     }
 
+    function currentXRange() {
+        const options = chart.options.scales.x;
+        const scale = chart.scales.x;
+        let min = options.min !== undefined ? options.min : scale.min;
+        let max = options.max !== undefined ? options.max : scale.max;
+        if (!isFinite(min) || !isFinite(max) || max <= min) {
+            return null;
+        }
+        return { min: min, max: max };
+    }
+
     function visibleBounds() {
+        const range = currentXRange();
         let min = Infinity;
         let max = -Infinity;
         chart.data.datasets.forEach(function (dataset) {
@@ -154,10 +166,27 @@
                 if (typeof point.y !== "number") {
                     return;
                 }
+                if (range && (point.x < range.min || point.x > range.max)) {
+                    return;
+                }
                 min = Math.min(min, point.y);
                 max = Math.max(max, point.y);
             });
         });
+        if (min === Infinity || max === -Infinity) {
+            chart.data.datasets.forEach(function (dataset) {
+                if (dataset.hidden) {
+                    return;
+                }
+                dataset.data.forEach(function (point) {
+                    if (typeof point.y !== "number") {
+                        return;
+                    }
+                    min = Math.min(min, point.y);
+                    max = Math.max(max, point.y);
+                });
+            });
+        }
         if (min === Infinity || max === -Infinity) {
             return null;
         }
@@ -217,10 +246,12 @@
         chart.options.scales.x.grid.display = grid;
         chart.options.scales.y.grid.display = grid;
 
+        const yScale = chart.options.scales.y;
         const bounds = visibleBounds();
         if (!bounds) {
-            chart.options.scales.y.min = 0;
-            chart.options.scales.y.max = 10;
+            yScale.min = 0;
+            yScale.max = 10;
+            applyYTickStep();
             return;
         }
 
@@ -229,8 +260,38 @@
             span = Math.max(Math.abs(bounds.max) * 0.2, 1);
         }
         const top = span * TOP_PADDING;
-        chart.options.scales.y.min = bounds.min;
-        chart.options.scales.y.max = bounds.max + top;
+        let yMin = Math.floor(bounds.min);
+        let yMax = Math.ceil(bounds.max + top);
+        if (!(yMax > yMin)) {
+            yMax = yMin + 1;
+        }
+        yScale.min = yMin;
+        yScale.max = yMax;
+        applyYTickStep();
+    }
+
+    function applyYTickStep() {
+        if (!chart) {
+            return;
+        }
+        const y = chart.options.scales.y;
+        let min = y.min !== undefined ? y.min : chart.scales.y.min;
+        let max = y.max !== undefined ? y.max : chart.scales.y.max;
+        const range = max - min;
+        let step = 1;
+        if (isFinite(range) && range > 20) {
+            const raw = range / 10;
+            const power = Math.pow(10, Math.floor(Math.log10(raw)));
+            const candidates = [1, 2, 3, 5, 10].map(function (factor) {
+                return factor * power;
+            });
+            step = candidates.find(function (value) {
+                return value >= raw;
+            }) || candidates[candidates.length - 1];
+            step = Math.max(1, Math.round(step));
+        }
+        y.ticks.stepSize = step;
+        y.ticks.precision = 0;
     }
 
     const tickDatePlugin = {
@@ -246,6 +307,10 @@
             }
             const tickOpts = scale.options.ticks || {};
             const font = tickOpts.font || {};
+            const labelSize = typeof font.size === "number" ? font.size : 12;
+            const lineHeight = typeof font.lineHeight === "number" ? font.lineHeight : labelSize;
+            const padding = typeof tickOpts.padding === "number" ? tickOpts.padding : 0;
+            const dateY = scale.top + padding + lineHeight / 2 + 1;
             const ctx = chartInstance.ctx;
             ctx.save();
             ctx.fillStyle = "#6e6e73";
@@ -265,7 +330,7 @@
                     pad(date.getDate()) + ":" + pad(date.getMonth() + 1) + ":" +
                         String(date.getFullYear()).slice(-2),
                     x,
-                    scale.bottom + 2
+                    dateY
                 );
             });
             ctx.restore();
@@ -388,6 +453,8 @@
         } else {
             chart.update("none");
         }
+        applyScaleOptions();
+        chart.update("none");
         userAdjustedX = false;
     }
 
@@ -397,6 +464,7 @@
         }
         chart.options.scales.x.min = startMs;
         chart.options.scales.x.max = endMs;
+        applyScaleOptions();
         chart.update("none");
     }
 
@@ -700,6 +768,29 @@
         const ratio = (focal - min) / range;
         options.min = focal - ratio * newRange;
         options.max = options.min + newRange;
+
+        const yScale = chart.scales.y;
+        const yOptions = chart.options.scales.y;
+        let yMin = yOptions.min !== undefined ? yOptions.min : yScale.min;
+        let yMax = yOptions.max !== undefined ? yOptions.max : yScale.max;
+        const yRange = yMax - yMin;
+        if (isFinite(yMin) && isFinite(yMax) && yRange > 0) {
+            const newYRange = Math.max(1, yRange * factor);
+            let yFocal = yScale.getValueForPixel(point.y);
+            if (yFocal === undefined || yFocal === null || isNaN(yFocal)) {
+                yFocal = (yMin + yMax) / 2;
+            }
+            const topRatio = (yMax - yFocal) / yRange;
+            const newYMax = yFocal + topRatio * newYRange;
+            const newYMin = newYMax - newYRange;
+            yOptions.min = Math.floor(newYMin);
+            yOptions.max = Math.ceil(newYMax);
+            if (!(yOptions.max > yOptions.min)) {
+                yOptions.max = yOptions.min + 1;
+            }
+        }
+        applyYTickStep();
+        stopLiveMode();
         userAdjustedX = true;
         chart.update("none");
     }
@@ -921,6 +1012,15 @@
         fetchData("manual", true, null);
     }
 
+    function resetToDefault() {
+        const end = new Date();
+        const start = new Date(end.getTime() - 60 * 1000);
+        startInput.value = toLocalInput(start);
+        endInput.value = toLocalInput(end);
+        userAdjustedX = false;
+        startLiveMode();
+    }
+
     function logPrint() {
         const channels = toggles
             .filter(function (item) {
@@ -966,7 +1066,7 @@
         liveBtn.addEventListener("click", toggleLiveMode);
     }
     document.getElementById("reset-zoom").addEventListener("click", function () {
-        resetZoom();
+        resetToDefault();
     });
     document.getElementById("print-chart").addEventListener("click", function () {
         logPrint();
@@ -994,7 +1094,7 @@
         pointerDown = null;
         hideActiveReadout();
     });
-    canvas.addEventListener("dblclick", resetZoom);
+    canvas.addEventListener("dblclick", resetToDefault);
 
     updateReportDate();
     loadDeviceConfig().then(startLiveMode);
