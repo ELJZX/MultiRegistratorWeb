@@ -2,6 +2,7 @@ import json
 import time
 from datetime import timedelta
 
+from django.contrib.auth.decorators import login_required
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
@@ -42,6 +43,7 @@ def _resolve_device(identifier):
     return device
 
 
+@login_required
 def dashboard(request):
     devices = Device.objects.prefetch_related("channels").all()
     rows = []
@@ -55,6 +57,7 @@ def dashboard(request):
     return render(request, "devices/dashboard.html", {"rows": rows})
 
 
+@login_required
 def device_detail(request, pk):
     device = get_object_or_404(Device.objects.prefetch_related("channels"), pk=pk)
     channels = list(device.channels.all())

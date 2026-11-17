@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
@@ -18,6 +19,10 @@ class ApiTests(TestCase):
             value=22.5,
             measured_at=self.now,
         )
+        self.user = get_user_model().objects.create_user(
+            username="viewer", password="pass12345"
+        )
+        self.client.force_login(self.user)
 
     def test_health(self):
         response = self.client.get("/api/health")

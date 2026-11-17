@@ -28,6 +28,10 @@ class AuditLogTests(TestCase):
         }
 
     def test_page_view_is_logged(self):
+        user = get_user_model().objects.create_user(
+            username="viewer", password="pass12345"
+        )
+        self.client.force_login(user)
         self.client.get("/")
         entry = UserEventLog.objects.get(action=UserEventLog.Action.VIEW, path="/")
         self.assertEqual(entry.status_code, 200)
