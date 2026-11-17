@@ -72,6 +72,17 @@
         return String(value).padStart(2, "0");
     }
 
+    function labelStepHours(span) {
+        const totalHours = span / 3600000;
+        if (span >= 48 * 3600 * 1000) {
+            return Math.max(1, Math.ceil(totalHours / 12));
+        }
+        if (span > 24 * 3600 * 1000) {
+            return Math.max(1, Math.ceil(totalHours / 24));
+        }
+        return 1;
+    }
+
     function toLocalInput(date) {
         return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) +
             "T" + pad(date.getHours()) + ":" + pad(date.getMinutes()) + ":" + pad(date.getSeconds());
@@ -222,6 +233,45 @@
         chart.options.scales.y.max = bounds.max + top;
     }
 
+    const tickDatePlugin = {
+        id: "tickDates",
+        afterDraw: function (chartInstance) {
+            const scale = chartInstance.scales.x;
+            if (!scale || !scale.ticks || !scale.ticks.length) {
+                return;
+            }
+            const span = scale.max - scale.min;
+            if (!(span >= 48 * 3600 * 1000)) {
+                return;
+            }
+            const tickOpts = scale.options.ticks || {};
+            const font = tickOpts.font || {};
+            const ctx = chartInstance.ctx;
+            ctx.save();
+            ctx.fillStyle = "#6e6e73";
+            ctx.font = "9px " + (font.family || "sans-serif");
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            scale.ticks.forEach(function (tick, index) {
+                if (!tick || tick.value === undefined || !tick.label) {
+                    return;
+                }
+                const x = scale.getPixelForTick(index);
+                if (x < chartInstance.chartArea.left || x > chartInstance.chartArea.right) {
+                    return;
+                }
+                const date = new Date(tick.value);
+                ctx.fillText(
+                    pad(date.getDate()) + ":" + pad(date.getMonth() + 1) + ":" +
+                        String(date.getFullYear()).slice(-2),
+                    x,
+                    scale.bottom + 2
+                );
+            });
+            ctx.restore();
+        }
+    };
+
     function buildChart() {
         if (chart) {
             chart.destroy();
@@ -229,7 +279,9 @@
         chart = new Chart(canvas.getContext("2d"), {
             type: "line",
             data: { datasets: [] },
+            plugins: [tickDatePlugin],
             options: {
+                layout: { padding: { bottom: 16 } },
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: false,
@@ -276,14 +328,34 @@
                             }
                         },
                         grid: { display: true },
-                        ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 16 },
+                        ticks: {
+                            maxRotation: 0,
+                            autoSkip: true,
+                            maxTicksLimit: 16,
+                            callback: function (value, index) {
+                                const span = this.max - this.min;
+                                if (!isFinite(span) || span <= 0) {
+                                    return "";
+                                }
+                                const date = new Date(value);
+                                if (span <= MAX_TICK_STEP) {
+                                    return pad(date.getHours()) + ":" +
+                                        pad(date.getMinutes()) + ":" + pad(date.getSeconds());
+                                }
+                                const stepHours = labelStepHours(span);
+                                if (stepHours > 1 && index % stepHours !== 0) {
+                                    return "";
+                                }
+                                return pad(date.getHours()) + ":" + pad(date.getMinutes());
+                            }
+                        },
                         time: {
                             minUnit: "second",
                             tooltipFormat: "HH:mm:ss",
                             displayFormats: {
                                 second: "HH:mm:ss",
                                 minute: "HH:mm:ss",
-                                hour: "HH:mm:ss",
+                                hour: "HH:mm",
                                 day: "dd.MM.yyyy",
                                 week: "dd.MM.yyyy",
                                 month: "MM.yyyy",
