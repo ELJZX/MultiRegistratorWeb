@@ -1023,10 +1023,20 @@
     function startLiveMode() {
         baselineMode = "live";
         baselineRange = null;
+        const liveEnd = new Date();
+        const liveStart = new Date(liveEnd.getTime() - 60 * 1000);
+        const span = liveEnd.getTime() - liveStart.getTime();
+        startInput.value = toLocalInput(liveStart);
+        endInput.value = toLocalInput(liveEnd);
         setLiveButtonState(true);
         hideActiveReadout();
-        resetZoom();
         userAdjustedX = false;
+        if (chart) {
+            chart.options.scales.x.min = liveStart.getTime();
+            chart.options.scales.x.max = liveEnd.getTime() + span * LIVE_PADDING;
+            applyScaleOptions();
+            chart.update("none");
+        }
         if (liveTimer) {
             clearInterval(liveTimer);
         }
