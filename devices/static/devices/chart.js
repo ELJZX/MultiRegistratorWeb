@@ -44,6 +44,8 @@
     let activePoint = null;
     let pointerDown = null;
     let panFrame = null;
+    let baselineMode = "live";
+    let baselineRange = null;
 
     if (!window.Chart) {
         setStatus("Не удалось загрузить библиотеку графиков (Chart.js).", true);
@@ -1019,6 +1021,8 @@
     }
 
     function startLiveMode() {
+        baselineMode = "live";
+        baselineRange = null;
         setLiveButtonState(true);
         hideActiveReadout();
         resetZoom();
@@ -1048,21 +1052,42 @@
 
     function buildReport() {
         stopLiveMode();
-        fetchData("manual", true, null);
+        baselineMode = "report";
+        baselineRange = null;
+        fetchData("manual", true, null).then(function () {
+            if (chart && isFinite(chart.scales.x.min) && isFinite(chart.scales.x.max)) {
+                baselineRange = { min: chart.scales.x.min, max: chart.scales.x.max };
+            }
+        });
     }
 
     function resetToDefault() {
+        hideActiveReadout();
         stopLiveMode();
-        const end = new Date();
-        const start = new Date(end.getTime() - 60 * 1000);
-        const span = end.getTime() - start.getTime();
-        startInput.value = toLocalInput(start);
-        endInput.value = toLocalInput(end);
-        userAdjustedX = false;
-        fetchData("manual", true, {
-            startMs: start.getTime(),
-            endMs: end.getTime() + span * LIVE_PADDING
-        });
+        if (!chart) {
+            return;
+        }
+        const data = utils.dataBounds(chart.data.datasets);
+        const padding = baselineMode === "live" ? LIVE_PADDING : 0;
+        const range = utils.resolveResetRange(
+            baselineMode,
+            baselineRange,
+            data ? data.min : NaN,
+            data ? data.max : NaN,
+            padding
+        );
+        if (!range) {
+            return;
+        }
+        chart.options.scales.x.min = range.min;
+        chart.options.scales.x.max = range.max;
+        startInput.value = toLocalInput(new Date(range.min));
+        endInput.value = toLocalInput(new Date(range.max));
+        userAdjustedX = true;
+        applyScaleOptions();
+        chart.update("none");
+        periodEl.textContent = formatPeriodValue(startInput.value) +
+            " - " + formatPeriodValue(endInput.value);
     }
 
     function logPrint() {

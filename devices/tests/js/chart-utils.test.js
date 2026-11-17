@@ -105,3 +105,29 @@ test("labelEvery: invalid input uses every label", function () {
     assert.equal(utils.labelEvery(0, 12), 1);
     assert.equal(utils.labelEvery(NaN, 12), 1);
 });
+
+test("resolveResetRange: report returns the last built range", function () {
+    const result = utils.resolveResetRange("report", { min: 100, max: 900 }, 0, 1000, 0);
+    assert.deepEqual(result, { min: 100, max: 900 });
+});
+
+test("resolveResetRange: report without baseline fits the data", function () {
+    const result = utils.resolveResetRange("report", null, 100, 900, 0);
+    assert.deepEqual(result, { min: 100, max: 900 });
+});
+
+test("resolveResetRange: live fits data and keeps right padding", function () {
+    const result = utils.resolveResetRange("live", null, 0, 60000, 0.2);
+    assert.equal(result.min, 0);
+    assert.equal(result.max, 72000);
+});
+
+test("resolveResetRange: invalid baseline falls back to data", function () {
+    const result = utils.resolveResetRange("report", { min: 5, max: 5 }, 100, 900, 0);
+    assert.deepEqual(result, { min: 100, max: 900 });
+});
+
+test("resolveResetRange: no data returns null", function () {
+    assert.equal(utils.resolveResetRange("live", null, NaN, NaN, 0.2), null);
+    assert.equal(utils.resolveResetRange("report", null, 0, 0, 0), null);
+});

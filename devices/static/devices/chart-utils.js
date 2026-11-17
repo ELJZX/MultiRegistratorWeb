@@ -87,11 +87,30 @@
         return Math.max(1, Math.ceil(gridCount / target));
     }
 
+    function resolveResetRange(mode, baseline, dataMin, dataMax, padding) {
+        if (
+            mode === "report" &&
+            baseline &&
+            isFinite(baseline.min) &&
+            isFinite(baseline.max) &&
+            baseline.max > baseline.min
+        ) {
+            return { min: baseline.min, max: baseline.max };
+        }
+        if (isFinite(dataMin) && isFinite(dataMax) && dataMax > dataMin) {
+            const span = dataMax - dataMin;
+            const pad = isFinite(padding) ? Math.max(0, padding) : 0;
+            return { min: dataMin, max: dataMax + span * pad };
+        }
+        return null;
+    }
+
     return {
         dataBounds: dataBounds,
         clampSpan: clampSpan,
         clampWindow: clampWindow,
         gridStepHours: gridStepHours,
-        labelEvery: labelEvery
+        labelEvery: labelEvery,
+        resolveResetRange: resolveResetRange
     };
 });
