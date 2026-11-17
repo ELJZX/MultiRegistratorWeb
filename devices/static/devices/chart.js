@@ -32,6 +32,7 @@
 
     const LIVE_PADDING = 0.2;
     const TOP_PADDING = 0.2;
+    const MAX_X_SPAN = 3600 * 1000;
 
     let chart = null;
     let units = {};
@@ -248,10 +249,11 @@
                             drag: { enabled: false },
                             mode: "x",
                             onZoomComplete: function () {
+                                clampXRange();
                                 userAdjustedX = true;
                             }
                         },
-                        limits: { x: { minRange: 1000, maxRange: 7200000 } }
+                        limits: { x: { minRange: 1000 } }
                     }
                 },
                 scales: {
@@ -283,6 +285,26 @@
         });
         wrap.dataset.zoom = typeof chart.zoomScale === "function" ? "1" : "0";
         applyScaleOptions();
+    }
+
+    function clampXRange() {
+        if (!chart) {
+            return;
+        }
+        const scale = chart.scales.x;
+        const options = chart.options.scales.x;
+        let min = options.min !== undefined ? options.min : scale.min;
+        let max = options.max !== undefined ? options.max : scale.max;
+        if (!isFinite(min) || !isFinite(max) || max <= min) {
+            return;
+        }
+        if (max - min <= MAX_X_SPAN) {
+            return;
+        }
+        const center = (min + max) / 2;
+        options.min = center - MAX_X_SPAN / 2;
+        options.max = center + MAX_X_SPAN / 2;
+        chart.update("none");
     }
 
     function resetZoom() {
