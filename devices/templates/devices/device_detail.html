@@ -57,7 +57,10 @@
 
     <section class="chart-area">
         <div class="chart-header">
-            <p id="chart-period" class="muted"></p>
+            <div class="chart-header-info">
+                <p id="chart-loading" class="chart-loading" hidden>Загрузка данных...</p>
+                <p id="chart-period" class="muted"></p>
+            </div>
             <button class="btn live-btn active" id="live-toggle" type="button" aria-pressed="true">Режим реального времени</button>
         </div>
         <div class="chart-canvas-wrap">

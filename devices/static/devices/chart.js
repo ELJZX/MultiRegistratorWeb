@@ -19,6 +19,7 @@
     const statusValueEl = document.getElementById("status-value");
     const legendEl = document.getElementById("chart-legend");
     const periodEl = document.getElementById("chart-period");
+    const loadingEl = document.getElementById("chart-loading");
     const reportDateEl = document.getElementById("report-date");
     const liveBtn = document.getElementById("live-toggle");
     const gridEl = document.getElementById("grid-toggle");
@@ -32,7 +33,6 @@
     ];
 
     const LIVE_PADDING = 0.2;
-    const TOP_PADDING = 0.2;
     const MIN_X_SPAN = 1000;
     const MAX_TICK_STEP = 3600 * 1000;
     const MAX_X_SPAN = 3 * 24 * 3600 * 1000;
@@ -41,9 +41,11 @@
     let units = {};
     let liveTimer = null;
     let userAdjustedX = false;
+    let userAdjustedY = false;
     let activePoint = null;
     let pointerDown = null;
     let panFrame = null;
+    let dataRequestId = 0;
     let baselineMode = "live";
     let baselineRange = null;
 
@@ -65,6 +67,18 @@
             statusValueEl.textContent = text || "";
         }
         statusEl.classList.toggle("error", Boolean(isError));
+    }
+
+    function showLoading() {
+        if (loadingEl) {
+            loadingEl.hidden = false;
+        }
+    }
+
+    function hideLoading() {
+        if (loadingEl) {
+            loadingEl.hidden = true;
+        }
     }
 
     function setUpdated() {
@@ -115,6 +129,15 @@
             pad(date.getHours()) + ":" + pad(date.getMinutes());
     }
 
+    function maxZoomSpan() {
+        const baseline = baselineRange ?
+            baselineRange.max - baselineRange.min : 0;
+        if (isFinite(baseline) && baseline > MAX_X_SPAN) {
+            return baseline;
+        }
+        return MAX_X_SPAN;
+    }
+
     function currentSpanMs() {
         const startMs = startInput.value ? new Date(startInput.value).getTime() : NaN;
         const endMs = endInput.value ? new Date(endInput.value).getTime() : NaN;
@@ -152,43 +175,42 @@
         return { min: min, max: max };
     }
 
-    function visibleBounds() {
-        const range = currentXRange();
+    function datasetBounds(dataset, range) {
         let min = Infinity;
         let max = -Infinity;
-        chart.data.datasets.forEach(function (dataset) {
-            if (dataset.hidden) {
+        let integer = true;
+        const points = dataset.data || [];
+        const scan = function (point) {
+            if (typeof point.y !== "number") {
                 return;
             }
-            dataset.data.forEach(function (point) {
+            if (range && (point.x < range.min || point.x > range.max)) {
+                return;
+            }
+            min = Math.min(min, point.y);
+            max = Math.max(max, point.y);
+            if (!Number.isInteger(point.y)) {
+                integer = false;
+            }
+        };
+        points.forEach(scan);
+        if (min === Infinity) {
+            integer = true;
+            points.forEach(function (point) {
                 if (typeof point.y !== "number") {
-                    return;
-                }
-                if (range && (point.x < range.min || point.x > range.max)) {
                     return;
                 }
                 min = Math.min(min, point.y);
                 max = Math.max(max, point.y);
-            });
-        });
-        if (min === Infinity || max === -Infinity) {
-            chart.data.datasets.forEach(function (dataset) {
-                if (dataset.hidden) {
-                    return;
+                if (!Number.isInteger(point.y)) {
+                    integer = false;
                 }
-                dataset.data.forEach(function (point) {
-                    if (typeof point.y !== "number") {
-                        return;
-                    }
-                    min = Math.min(min, point.y);
-                    max = Math.max(max, point.y);
-                });
             });
         }
-        if (min === Infinity || max === -Infinity) {
+        if (min === Infinity) {
             return null;
         }
-        return { min: min, max: max };
+        return { min: min, max: max, integer: integer };
     }
 
     function applyVisibility() {
@@ -203,7 +225,7 @@
         });
         renderLegend();
         applyScaleOptions();
-        chart.update("none");
+        chart.update();
     }
 
     function renderLegend() {
@@ -236,60 +258,94 @@
         });
     }
 
+    function yTargetTicks() {
+        const height = chart && chart.chartArea ?
+            chart.chartArea.bottom - chart.chartArea.top : 420;
+        return Math.max(4, Math.min(8, Math.round(height / 70)));
+    }
+
+    function visibleBounds() {
+        const range = currentXRange();
+        let min = Infinity;
+        let max = -Infinity;
+        let integer = true;
+        chart.data.datasets.forEach(function (dataset) {
+            if (dataset.hidden) {
+                return;
+            }
+            const bounds = datasetBounds(dataset, range);
+            if (!bounds) {
+                return;
+            }
+            min = Math.min(min, bounds.min);
+            max = Math.max(max, bounds.max);
+            if (!bounds.integer) {
+                integer = false;
+            }
+        });
+        if (min === Infinity) {
+            return null;
+        }
+        return { min: min, max: max, integer: integer };
+    }
+
+    function applyYAxis(axis) {
+        const y = chart.options.scales.y;
+        y.min = axis.min;
+        y.max = axis.max;
+        if (!y.ticks) {
+            y.ticks = {};
+        }
+        y.ticks.stepSize = axis.step;
+        y.ticks.precision = axis.precision;
+    }
+
     function applyScaleOptions() {
         if (!chart) {
             return;
         }
         const grid = gridEl ? gridEl.classList.contains("active") : true;
         chart.options.scales.x.grid.display = grid;
-        chart.options.scales.y.grid.display = grid;
-
+        chart.data.datasets.forEach(function (dataset) {
+            dataset.yAxisID = "y";
+        });
+        ["y1", "y2", "y3"].forEach(function (id) {
+            if (chart.options.scales[id]) {
+                delete chart.options.scales[id];
+            }
+        });
         const yScale = chart.options.scales.y;
+        if (!yScale.grid) {
+            yScale.grid = {};
+        }
+        yScale.grid.display = grid;
+        if (userAdjustedY) {
+            return;
+        }
         const bounds = visibleBounds();
         if (!bounds) {
-            yScale.min = 0;
-            yScale.max = 10;
-            applyYTickStep();
+            applyYAxis({ min: 0, max: 10, step: 1, precision: 0 });
             return;
         }
-
-        let span = bounds.max - bounds.min;
-        if (!(span > 0)) {
-            span = Math.max(Math.abs(bounds.max) * 0.2, 1);
+        const span = bounds.max - bounds.min;
+        // Only pad above the data, so the axis starts at a real value instead
+        // of wasting half of the chart on negative space.
+        const pad = bounds.integer || !(span > 0) ? 0 : span * 0.1;
+        let axis = utils.niceAxis(
+            bounds.min,
+            bounds.max + pad,
+            yTargetTicks()
+        );
+        if (bounds.integer) {
+            const step = Math.max(1, axis.step);
+            axis = {
+                min: Math.floor(axis.min / step) * step,
+                max: Math.ceil(axis.max / step) * step,
+                step: step,
+                precision: 0
+            };
         }
-        const top = span * TOP_PADDING;
-        let yMin = Math.floor(bounds.min);
-        let yMax = Math.ceil(bounds.max + top);
-        if (!(yMax > yMin)) {
-            yMax = yMin + 1;
-        }
-        yScale.min = yMin;
-        yScale.max = yMax;
-        applyYTickStep();
-    }
-
-    function applyYTickStep() {
-        if (!chart) {
-            return;
-        }
-        const y = chart.options.scales.y;
-        let min = y.min !== undefined ? y.min : chart.scales.y.min;
-        let max = y.max !== undefined ? y.max : chart.scales.y.max;
-        const range = max - min;
-        let step = 1;
-        if (isFinite(range) && range > 20) {
-            const raw = range / 10;
-            const power = Math.pow(10, Math.floor(Math.log10(raw)));
-            const candidates = [1, 2, 3, 5, 10].map(function (factor) {
-                return factor * power;
-            });
-            step = candidates.find(function (value) {
-                return value >= raw;
-            }) || candidates[candidates.length - 1];
-            step = Math.max(1, Math.round(step));
-        }
-        y.ticks.stepSize = step;
-        y.ticks.precision = 0;
+        applyYAxis(axis);
     }
 
     const tickDatePlugin = {
@@ -314,6 +370,7 @@
             ctx.font = "9px " + (firstFont.family || "sans-serif");
             ctx.textAlign = "center";
             ctx.textBaseline = "top";
+            let lastRight = -Infinity;
             items.forEach(function (item, index) {
                 const tick = scale.ticks[index];
                 if (!tick || tick.value === undefined) {
@@ -348,12 +405,14 @@
                         break;
                 }
                 const date = new Date(tick.value);
-                ctx.fillText(
-                    pad(date.getDate()) + ":" + pad(date.getMonth() + 1) + ":" +
-                        String(date.getFullYear()).slice(-2),
-                    x,
-                    bottom + 1
-                );
+                const dateText = pad(date.getDate()) + ":" + pad(date.getMonth() + 1) + ":" +
+                    String(date.getFullYear()).slice(-2);
+                const halfWidth = ctx.measureText(dateText).width / 2;
+                if (x - halfWidth < lastRight + 4) {
+                    return;
+                }
+                lastRight = x + halfWidth;
+                ctx.fillText(dateText, x, bottom + 1);
             });
             ctx.restore();
         }
@@ -402,23 +461,37 @@
                             const span = scale.max - scale.min;
                             const time = scale.options.time;
                             const ticks = scale.options.ticks;
-                            if (isFinite(span) && span > MAX_TICK_STEP) {
+                            const width = scale.width || (chart && chart.chartArea ?
+                                chart.chartArea.right - chart.chartArea.left : 800);
+                            const forceHour = isFinite(span) &&
+                                span > MAX_TICK_STEP &&
+                                span >= 6 * 3600 * 1000;
+                            if (forceHour) {
                                 const spanHours = span / 3600000;
                                 time.unit = "hour";
                                 ticks.stepSize = utils.gridStepHours(spanHours, 600);
                                 ticks.autoSkip = false;
                                 ticks.maxTicksLimit = 1000;
+                                const gridCount = spanHours / ticks.stepSize;
+                                const maxLabels = Math.max(2, Math.floor(width / 64));
+                                scale._labelEvery = Math.max(
+                                    1, utils.labelEvery(gridCount, maxLabels)
+                                );
                             } else {
+                                // Chart.js picks minute ticks for 1-6 hours and finer
+                                // ones below an hour; autoSkip keeps labels apart.
                                 time.unit = false;
                                 ticks.stepSize = undefined;
                                 ticks.autoSkip = true;
-                                ticks.maxTicksLimit = 16;
+                                ticks.maxTicksLimit = Math.max(2, Math.floor(width / 70));
+                                scale._labelEvery = 1;
                             }
                         },
                         grid: { display: true },
                         ticks: {
                             maxRotation: 0,
                             autoSkip: true,
+                            align: "inner",
                             maxTicksLimit: 16,
                             callback: function (value, index) {
                                 const span = this.max - this.min;
@@ -430,10 +503,7 @@
                                     return pad(date.getHours()) + ":" +
                                         pad(date.getMinutes()) + ":" + pad(date.getSeconds());
                                 }
-                                const gridStep = (this.options.ticks && this.options.ticks.stepSize) || 1;
-                                const gridCount = (span / 3600000) / gridStep;
-                                const targetLabels = span >= 48 * 3600 * 1000 ? 12 : 24;
-                                const labelEvery = utils.labelEvery(gridCount, targetLabels);
+                                const labelEvery = this._labelEvery || 1;
                                 if (labelEvery > 1 && index % labelEvery !== 0) {
                                     return "";
                                 }
@@ -468,15 +538,16 @@
 
     function resetZoom() {
         hideActiveReadout();
+        userAdjustedY = false;
         if (!chart) {
             userAdjustedX = false;
             return;
         }
         delete chart.options.scales.x.min;
         delete chart.options.scales.x.max;
-        chart.update("none");
+        chart.update();
         applyScaleOptions();
-        chart.update("none");
+        chart.update();
         userAdjustedX = false;
     }
 
@@ -484,10 +555,11 @@
         if (!chart || userAdjustedX || pointerDown) {
             return;
         }
+        baselineRange = { min: startMs, max: endMs };
         chart.options.scales.x.min = startMs;
         chart.options.scales.x.max = endMs;
         applyScaleOptions();
-        chart.update("none");
+        chart.update();
     }
 
     function nearestPoint(data, targetX) {
@@ -726,14 +798,15 @@
     function beginPan(point) {
         const xScale = chart.scales.x;
         const yScale = chart.scales.y;
+        const yOptions = chart.options.scales.y;
         pointerDown = {
             mode: "pan",
             startX: point.x,
             startY: point.y,
             startXMin: xScale.min,
             startXMax: xScale.max,
-            startYMin: yScale.min,
-            startYMax: yScale.max,
+            startYMin: yOptions.min !== undefined ? yOptions.min : yScale.min,
+            startYMax: yOptions.max !== undefined ? yOptions.max : yScale.max,
             areaWidth: chart.chartArea.right - chart.chartArea.left,
             areaHeight: chart.chartArea.bottom - chart.chartArea.top
         };
@@ -778,52 +851,69 @@
             return;
         }
         const factor = Math.exp(delta * 0.0015);
-        let newRange = utils.clampSpan(range, factor, MIN_X_SPAN, MAX_X_SPAN);
-        if (Math.abs(newRange - range) < 0.5) {
-            return;
-        }
         let focal = scale.getValueForPixel(point.x);
         if (focal === undefined || focal === null || isNaN(focal)) {
             focal = (min + max) / 2;
         }
         const ratio = (focal - min) / range;
-        let newMin = focal - ratio * newRange;
-        let newMax = newMin + newRange;
         const data = utils.dataBounds(chart.data.datasets);
+        let margin = 0;
         if (data) {
             const dataSpan = data.max - data.min;
-            const margin = Math.max(dataSpan * 0.2, MIN_X_SPAN);
-            const clamped = utils.clampWindow(newMin, newMax, data.min, data.max, margin);
-            newMin = clamped.min;
-            newMax = clamped.max;
+            margin = Math.max(dataSpan * 0.2, MIN_X_SPAN);
         }
-        options.min = newMin;
-        options.max = newMax;
+        const next = utils.zoomWindow(
+            { min: min, max: max },
+            factor,
+            ratio,
+            data,
+            margin,
+            MIN_X_SPAN,
+            maxZoomSpan()
+        );
+        if (!isFinite(next.min) || !isFinite(next.max) || next.max <= next.min) {
+            return;
+        }
+        if (Math.abs((next.max - next.min) - range) < 0.5) {
+            return;
+        }
+        options.min = next.min;
+        options.max = next.max;
 
         const yScale = chart.scales.y;
         const yOptions = chart.options.scales.y;
         let yMin = yOptions.min !== undefined ? yOptions.min : yScale.min;
         let yMax = yOptions.max !== undefined ? yOptions.max : yScale.max;
         const yRange = yMax - yMin;
-        if (factor < 1 && isFinite(yMin) && isFinite(yMax) && yRange > 0) {
-            const newYRange = Math.max(1, yRange * factor);
-            let yFocal = yScale.getValueForPixel(point.y);
-            if (yFocal === undefined || yFocal === null || isNaN(yFocal)) {
-                yFocal = (yMin + yMax) / 2;
-            }
-            const topRatio = (yMax - yFocal) / yRange;
-            const newYMax = yFocal + topRatio * newYRange;
-            const newYMin = newYMax - newYRange;
-            yOptions.min = Math.floor(newYMin);
-            yOptions.max = Math.ceil(newYMax);
-            if (!(yOptions.max > yOptions.min)) {
-                yOptions.max = yOptions.min + 1;
+        if (isFinite(yRange) && yRange > 0) {
+            const newYRange = yRange * factor;
+            if (isFinite(newYRange) && newYRange > 1e-12) {
+                let yFocal = yScale.getValueForPixel(point.y);
+                if (yFocal === undefined || yFocal === null || isNaN(yFocal)) {
+                    yFocal = (yMin + yMax) / 2;
+                }
+                const topRatio = (yMax - yFocal) / yRange;
+                const newYMax = yFocal + topRatio * newYRange;
+                const newYMin = newYMax - newYRange;
+                if (isFinite(newYMin) && isFinite(newYMax)) {
+                    yOptions.min = newYMin;
+                    yOptions.max = newYMax;
+                    if (!yOptions.ticks) {
+                        yOptions.ticks = {};
+                    }
+                    const yAxis = utils.niceAxis(0, newYRange, yTargetTicks());
+                    yOptions.ticks.stepSize = yAxis.step;
+                    yOptions.ticks.precision = yAxis.precision;
+                    userAdjustedY = true;
+                }
             }
         }
-        applyYTickStep();
+
         stopLiveMode();
         userAdjustedX = true;
-        chart.update("none");
+        // Rebuilds the X helper options; the manual Y range is kept as is.
+        applyScaleOptions();
+        chart.update();
     }
 
     function onMouseDown(event) {
@@ -849,6 +939,16 @@
             return;
         }
         const point = toCanvasPoint(event);
+        if (pointerDown.mode === "readout") {
+            // Pressing on a line only moves the readout; the chart stays put.
+            const area = chart.chartArea;
+            activePoint = {
+                x: Math.max(area.left, Math.min(area.right, point.x)),
+                y: Math.max(area.top, Math.min(area.bottom, point.y))
+            };
+            refreshActiveReadout();
+            return;
+        }
         if (pointerDown.mode === "pan") {
             const dx = point.x - pointerDown.startX;
             const rangeX = pointerDown.startXMax - pointerDown.startXMin;
@@ -870,28 +970,28 @@
             }
             const dy = point.y - pointerDown.startY;
             const rangeY = pointerDown.startYMax - pointerDown.startYMin;
-            if (pointerDown.areaHeight > 0 && rangeY > 0) {
+            if (pointerDown.areaHeight > 0 && rangeY > 0 && dy !== 0) {
                 const dv = (dy / pointerDown.areaHeight) * rangeY;
                 chart.options.scales.y.min = pointerDown.startYMin + dv;
                 chart.options.scales.y.max = pointerDown.startYMax + dv;
+                userAdjustedY = true;
             }
             schedulePanUpdate();
             return;
         }
-        const area = chart.chartArea;
-        activePoint = {
-            x: Math.max(area.left, Math.min(area.right, point.x)),
-            y: Math.max(area.top, Math.min(area.bottom, point.y))
-        };
-        refreshActiveReadout();
     }
 
     function onMouseUp() {
         if (!pointerDown) {
             return;
         }
+        const wasPan = pointerDown.mode === "pan";
         pointerDown = null;
         hideActiveReadout();
+        if (wasPan && chart) {
+            applyScaleOptions();
+            chart.update();
+        }
     }
 
     function updateChart(payload) {
@@ -948,9 +1048,12 @@
         const url = "/api/devices/" + encodeURIComponent(deviceId) + "/data?start=" +
             encodeURIComponent(start) + "&end=" + encodeURIComponent(end) +
             "&reason=" + encodeURIComponent(reason || "manual");
-        if (reason !== "live") {
-            setStatus("Загрузка данных...");
+        if (reason === "live") {
+            hideLoading();
+        } else {
+            showLoading();
         }
+        const requestId = ++dataRequestId;
         return fetch(url, { headers: { "Accept": "application/json" } })
             .then(function (response) {
                 if (!response.ok) {
@@ -959,6 +1062,10 @@
                 return response.json();
             })
             .then(function (payload) {
+                if (requestId !== dataRequestId) {
+                    return;
+                }
+                hideLoading();
                 updateChart(payload);
                 if (resetAfter) {
                     resetZoom();
@@ -969,6 +1076,13 @@
                 refreshActiveReadout();
             })
             .catch(function (error) {
+                if (requestId !== dataRequestId) {
+                    return;
+                }
+                hideLoading();
+                if (window.console && console.error) {
+                    console.error(error && error.stack ? error.stack : error);
+                }
                 setStatus("Ошибка загрузки данных: " + error.message, true);
             });
     }
@@ -1024,20 +1138,24 @@
 
     function startLiveMode() {
         baselineMode = "live";
-        baselineRange = null;
         const liveEnd = new Date();
         const liveStart = new Date(liveEnd.getTime() - 60 * 1000);
         const span = liveEnd.getTime() - liveStart.getTime();
+        baselineRange = {
+            min: liveStart.getTime(),
+            max: liveEnd.getTime() + span * LIVE_PADDING
+        };
         startInput.value = toLocalInput(liveStart);
         endInput.value = toLocalInput(liveEnd);
         setLiveButtonState(true);
         hideActiveReadout();
         userAdjustedX = false;
+        userAdjustedY = false;
         if (chart) {
             chart.options.scales.x.min = liveStart.getTime();
             chart.options.scales.x.max = liveEnd.getTime() + span * LIVE_PADDING;
             applyScaleOptions();
-            chart.update("none");
+            chart.update();
         }
         if (liveTimer) {
             clearInterval(liveTimer);
@@ -1096,8 +1214,9 @@
         startInput.value = toLocalInput(new Date(range.min));
         endInput.value = toLocalInput(new Date(range.max));
         userAdjustedX = true;
+        userAdjustedY = false;
         applyScaleOptions();
-        chart.update("none");
+        chart.update();
         periodEl.textContent = formatPeriodValue(startInput.value) +
             " - " + formatPeriodValue(endInput.value);
     }
@@ -1139,7 +1258,7 @@
             gridEl.setAttribute("aria-pressed", on ? "true" : "false");
             applyScaleOptions();
             if (chart) {
-                chart.update("none");
+                chart.update();
             }
         });
     }

@@ -1,5 +1,5 @@
 x-app-env: &app-env
-  APP_VERSION: "${APP_VERSION:-1.1.0}"
+  APP_VERSION: "${APP_VERSION:-1.2.0}"
   DJANGO_DEBUG: "0"
   DJANGO_SECRET_KEY: "${DJANGO_SECRET_KEY:-change-me-in-production}"
   DJANGO_ALLOWED_HOSTS: "${DJANGO_ALLOWED_HOSTS:-*}"
@@ -37,8 +37,8 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: "${APP_VERSION:-1.1.0}"
-    image: "multiregistrator-web:${APP_VERSION:-1.1.0}"
+        APP_VERSION: "${APP_VERSION:-1.2.0}"
+    image: "multiregistrator-web:${APP_VERSION:-1.2.0}"
     container_name: multiregistrator-web
     restart: unless-stopped
     environment: *app-env
@@ -64,8 +64,8 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: "${APP_VERSION:-1.1.0}"
-    image: "multiregistrator-web:${APP_VERSION:-1.1.0}"
+        APP_VERSION: "${APP_VERSION:-1.2.0}"
+    image: "multiregistrator-web:${APP_VERSION:-1.2.0}"
     container_name: multiregistrator-poller
     restart: unless-stopped
     environment: *app-env
@@ -81,7 +81,7 @@ services:
              python manage.py poll_devices"
 
   testdevice:
-    image: "multiregistrator-web:${APP_VERSION:-1.1.0}"
+    image: "multiregistrator-web:${APP_VERSION:-1.2.0}"
     container_name: multiregistrator-testdevice
     profiles: ["demo"]
     restart: unless-stopped
@@ -94,7 +94,7 @@ services:
     command: python manage.py test_device --host 0.0.0.0 --port 5020
 
   seed-demo:
-    image: "multiregistrator-web:${APP_VERSION:-1.1.0}"
+    image: "multiregistrator-web:${APP_VERSION:-1.2.0}"
     profiles: ["demo"]
     environment: *app-env
     depends_on:

@@ -527,9 +527,33 @@ input[type="checkbox"] {
     width: 100%;
 }
 
+.chart-header-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
 #chart-period {
     font-size: 13px;
     font-variant-numeric: tabular-nums;
+}
+
+.chart-loading {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    animation: chart-loading-blink 1s ease-in-out infinite;
+}
+
+@keyframes chart-loading-blink {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.2;
+    }
 }
 
 .chart-canvas-wrap {
@@ -767,7 +791,8 @@ input[type="checkbox"] {
     .live-btn,
     .actions,
     .device-title .badge,
-    .chart-status {
+    .chart-status,
+    .chart-loading {
         display: none !important;
     }
 

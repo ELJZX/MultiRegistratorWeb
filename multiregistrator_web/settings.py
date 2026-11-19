@@ -104,7 +104,7 @@ TIME_ZONE = os.environ.get("DJANGO_TIME_ZONE", "UTC")
 USE_I18N = True
 USE_TZ = True
 
-APP_VERSION = os.environ.get("APP_VERSION", "1.1.0")
+APP_VERSION = os.environ.get("APP_VERSION", "1.2.0")
 
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/"

@@ -1,8 +1,8 @@
 {
   "name": "multiregistrator-web",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
-  "description": "JavaScript unit tests for the chart helpers",
+  "description": "MultiRegistrator Web - Django/Modbus data logger with Chart.js dashboards",
   "scripts": {
     "test:js": "node --test devices/tests/js/chart-utils.test.js"
   }

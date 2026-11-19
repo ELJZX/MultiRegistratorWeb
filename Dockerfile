@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-ARG APP_VERSION=1.1.0
+ARG APP_VERSION=1.2.0
 LABEL org.opencontainers.image.title="MultiRegistrator Web" \
       org.opencontainers.image.version="${APP_VERSION}"
 
