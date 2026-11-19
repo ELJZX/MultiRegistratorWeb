@@ -14,6 +14,11 @@ x-app-env: &app-env
   POLLER_TICK: "0.2"
   POLLER_RELOAD_INTERVAL: "5.0"
 
+x-app-build: &app-build
+  context: .
+  args:
+    APP_VERSION: "${APP_VERSION:-1.2.0}"
+
 services:
   db:
     image: postgres:16-alpine
@@ -34,10 +39,7 @@ services:
       retries: 12
 
   web:
-    build:
-      context: .
-      args:
-        APP_VERSION: "${APP_VERSION:-1.2.0}"
+    build: *app-build
     image: "multiregistrator-web:${APP_VERSION:-1.2.0}"
     container_name: multiregistrator-web
     restart: unless-stopped
@@ -61,10 +63,7 @@ services:
       start_period: 30s
 
   poller:
-    build:
-      context: .
-      args:
-        APP_VERSION: "${APP_VERSION:-1.2.0}"
+    build: *app-build
     image: "multiregistrator-web:${APP_VERSION:-1.2.0}"
     container_name: multiregistrator-poller
     restart: unless-stopped
@@ -81,6 +80,7 @@ services:
              python manage.py poll_devices"
 
   testdevice:
+    build: *app-build
     image: "multiregistrator-web:${APP_VERSION:-1.2.0}"
     container_name: multiregistrator-testdevice
     profiles: ["demo"]
@@ -94,6 +94,7 @@ services:
     command: python manage.py test_device --host 0.0.0.0 --port 5020
 
   seed-demo:
+    build: *app-build
     image: "multiregistrator-web:${APP_VERSION:-1.2.0}"
     profiles: ["demo"]
     environment: *app-env

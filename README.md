@@ -134,6 +134,28 @@ API: http://localhost:8080/api/health
 docker compose exec web python manage.py createsuperuser
 ```
 
+### Сборка на другой машине
+
+Все файлы для сборки (`Dockerfile`, `docker-compose.yml`, `.dockerignore`,
+`requirements.txt`) хранятся в репозитории, поэтому контейнер собирается из
+исходников на любой машине с Docker:
+
+```bash
+git clone https://github.com/ELJZX/MultiRegistratorWeb.git
+cd MultiRegistratorWeb
+cp .env.example .env      # необязательно: порты, пароли, часовой пояс
+docker compose up -d --build
+```
+
+С демо-устройством (эмулятор Modbus):
+
+```bash
+docker compose --profile demo up -d --build
+```
+
+В Windows PowerShell вместо `cp` используйте `Copy-Item .env.example .env`.
+Без `.env` compose запустится на значениях по умолчанию.
+
 Версия образа задаётся переменной `APP_VERSION` (по умолчанию `1.2.0`):
 
 ```bash
