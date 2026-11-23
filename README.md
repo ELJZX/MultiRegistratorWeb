@@ -410,7 +410,7 @@ containers) и SSH-деплой. Подробная настройка окру�
 ## Версионирование и Docker-образы
 
 - Версия сервиса задаётся `APP_VERSION` (по умолчанию `1.2.0`) и возвращается
-  API `/api/health` и `/api/info`.
+  API `/api/health`, `/api/ready` и `/api/info`.
 - Docker-образы тегируются версией: `multiregistrator-web:${APP_VERSION}`.
 - В образ добавляется метка `org.opencontainers.image.version`.
 - Релиз сопровождается git-тегом `v1.2.0`.
