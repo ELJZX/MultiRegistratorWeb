@@ -31,6 +31,7 @@ npm run test:js                   # Node 18+; no npm install or frontend build
 - `manage.py test` does not run the JS tests. `.github/workflows/ci.yml` runs both suites (Django on SQLite and PostgreSQL), checks for missing migrations, and smoke-tests the Docker Compose stack. There is no lint/format/typecheck config yet.
 - Local default DB is SQLite; setting `DB_HOST` switches to PostgreSQL. Docker uses PostgreSQL 16.
 - Docker: `docker compose up -d --build` (UI on :8080); demo: `docker compose --profile demo up -d --build`. `web` and `poller` are separate services — polling must not be added to the web process.
+- Production stack: `docker-compose.prod.yml` pulls an immutable image, requires `APP_IMAGE`/`APP_VERSION` and real secrets, runs migrations once via a one-shot `migrate` service, and does not expose PostgreSQL. The Dockerfile builds the WhiteNoise manifest at build time; production does not run `collectstatic` at startup.
 
 ## Architecture and gotchas
 

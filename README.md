@@ -162,6 +162,31 @@ docker compose --profile demo up -d --build
 APP_VERSION=1.2.0 docker compose up -d --build
 ```
 
+### Production на одной VM
+
+`docker-compose.prod.yml` — отдельный стек для production: тянет готовый образ
+из registry, не собирает его на сервере, запускает миграции один раз через
+one-shot сервис `migrate` и не публикует PostgreSQL наружу.
+
+Заполните `.env`:
+
+- `APP_IMAGE` — репозиторий образа без тега, например
+  `ghcr.io/eljzx/multiregistrator-web`;
+- `APP_VERSION` — версия/тег образа;
+- `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `POSTGRES_DB`, `POSTGRES_USER`,
+  `POSTGRES_PASSWORD` — обязательные значения без небезопасных дефолтов.
+
+Запуск:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env pull
+docker compose -f docker-compose.prod.yml --env-file .env up -d
+curl http://localhost:8080/api/health
+```
+
+Для staging на той же VM используйте отдельные `COMPOSE_PROJECT_NAME`,
+`WEB_PORT` и `.env`; контейнеры и volumes будут разделены по имени проекта.
+
 ### Пользователи и права
 
 - **Администратор** — учётная запись с флагом `is_staff` (суперпользователь получает
@@ -314,12 +339,15 @@ timestamp,temperature,humidity
 | Переменная | По умолчанию | Назначение |
 | --- | --- | --- |
 | `APP_VERSION` | `1.2.0` | версия сервиса (API и Docker-образ) |
+| `APP_IMAGE` | — | репозиторий образа без тега; обязателен для `docker-compose.prod.yml` |
 | `DJANGO_SECRET_KEY` | dev-ключ | секретный ключ Django |
 | `DJANGO_DEBUG` | `1` | режим отладки |
 | `DJANGO_ALLOWED_HOSTS` | `*` | разрешённые хосты (через запятую) |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | — | доверенные origins для HTTPS/reverse proxy |
 | `DJANGO_TIME_ZONE` | `UTC` | часовой пояс |
 | `DB_HOST` | — | если задан, используется PostgreSQL |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_PORT` | — | параметры PostgreSQL |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | `multiregistrator` | параметры PostgreSQL в compose |
 | `ARCHIVE_STORAGE` | `database` | `files`, `database` или `both` |
 | `ARCHIVE_DIR` | `./archive` | каталог CSV-архива |
 | `AUDIT_LOG_ENABLED` | `1` | запись журнала действий пользователей |
@@ -349,6 +377,19 @@ Django-тесты покрывают декодирование регистро
 хранение, опрос, API, эмулятор, журнал действий и права пользователей.
 JS-тесты покрывают ограничения масштабирования, привязку к данным, шаг сетки,
 «круглые» деления оси Y, прореживание подписей и сброс к базовому виду.
+
+## CI
+
+GitHub Actions workflow `.github/workflows/ci.yml` запускается на push в `main` и
+на pull request:
+
+- Django-тесты на SQLite и PostgreSQL;
+- JS-тесты графика;
+- проверка, что изменения моделей закоммичены вместе с миграциями;
+- сборка Docker-образа и smoke-тест compose-стека с PostgreSQL.
+
+Секреты для CI не требуются. Smoke-тест собирает образ с тегом `ci`, проверяет
+`/api/health` и `/api/info`, после чего удаляет контейнеры и volumes.
 
 ## Версионирование и Docker-образы
 
