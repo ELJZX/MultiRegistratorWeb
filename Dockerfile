@@ -1,8 +1,11 @@
 FROM python:3.12-slim-bookworm
 
 ARG APP_VERSION=1.2.0
+ARG GIT_REVISION=unknown
 LABEL org.opencontainers.image.title="MultiRegistrator Web" \
-      org.opencontainers.image.version="${APP_VERSION}"
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_REVISION}" \
+      org.opencontainers.image.source="https://github.com/ELJZX/MultiRegistratorWeb"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

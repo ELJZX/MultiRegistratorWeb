@@ -83,7 +83,7 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).status == 200 else 1)"
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=3).status == 200 else 1)"
       interval: 10s
       timeout: 5s
       retries: 12
@@ -103,6 +103,12 @@ services:
         condition: service_completed_successfully
     volumes:
       - archive-data:/app/archive
+    healthcheck:
+      test: ["CMD", "python", "manage.py", "poller_health", "--max-age", "120"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     stop_grace_period: 30s
     logging: *default-logging
 

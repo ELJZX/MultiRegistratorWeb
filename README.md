@@ -112,6 +112,8 @@ archive/                CSV-архив (если ARCHIVE_STORAGE=files|both)
 - `db` — PostgreSQL 16;
 - `web` — Django + Gunicorn (веб-интерфейс и API);
 - `poller` — отдельный процесс `python manage.py poll_devices` (фоновый опрос);
+  пишет heartbeat, по которому `poller_health` проверяет, что опрос действительно
+  идёт;
 - `testdevice` и `seed-demo` — опциональный демо-профиль с эмулятором.
 
 Опрос вынесен в отдельный процесс, чтобы веб-сервер мог работать в несколько
@@ -181,7 +183,7 @@ one-shot сервис `migrate` и не публикует PostgreSQL наруж
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env pull
 docker compose -f docker-compose.prod.yml --env-file .env up -d
-curl http://localhost:8080/api/health
+curl http://localhost:8080/api/ready
 ```
 
 Для staging на той же VM используйте отдельные `COMPOSE_PROJECT_NAME`,
@@ -322,7 +324,8 @@ timestamp,temperature,humidity
 
 | Метод | Путь | Описание |
 | --- | --- | --- |
-| GET | `/api/health` | проверка доступности и версия |
+| GET | `/api/health` | liveness: процесс отвечает, версия |
+| GET | `/api/ready` | readiness: процесс и подключение к БД |
 | GET | `/api/info` | информация о приложении |
 | GET | `/api/devices` | список устройств и их состояние |
 | GET | `/api/devices/{id}` | одно устройство (по id или host) |
@@ -389,7 +392,20 @@ GitHub Actions workflow `.github/workflows/ci.yml` запускается на p
 - сборка Docker-образа и smoke-тест compose-стека с PostgreSQL.
 
 Секреты для CI не требуются. Smoke-тест собирает образ с тегом `ci`, проверяет
-`/api/health` и `/api/info`, после чего удаляет контейнеры и volumes.
+`/api/health`, `/api/ready` и `/api/info`, после чего удаляет контейнеры и volumes.
+
+## CD и выкладка
+
+- `main` -> staging: сборка образа с тегом `sha-<short>`, публикация в GHCR и
+  деплой staging.
+- Тег `vX.Y.Z` -> production: проверка версии и тестов, публикация образа,
+  smoke-тест production-стека, деплой после approve.
+- Перед миграциями `deploy.ps1` делает `pg_dump`; при неудачном healthcheck
+  автоматически возвращает предыдущий тег.
+
+Production сейчас рассчитан на одну Windows VM с Docker Desktop (Linux
+containers) и SSH-деплой. Подробная настройка окружений, секретов, GHCR,
+бэкапов и отката — в [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Версионирование и Docker-образы
 

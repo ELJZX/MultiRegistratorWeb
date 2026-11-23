@@ -139,9 +139,9 @@ class Poller:
         now = time.monotonic()
         if now - self._last_heartbeat < HEARTBEAT_INTERVAL:
             return
+        self._last_heartbeat = now
         try:
             update_heartbeat()
-            self._last_heartbeat = now
         except Exception:
             logger.exception("cannot update poller heartbeat")
 
