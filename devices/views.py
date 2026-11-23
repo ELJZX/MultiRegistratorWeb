@@ -1,9 +1,11 @@
 import json
+import logging
 import time
 from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
+from django.db import connection
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
@@ -14,7 +16,9 @@ from .audit import log_event
 from .models import Device, UserEventLog
 from .polling import status_payload
 
-VERSION = getattr(settings, "APP_VERSION", "1.1.0")
+VERSION = settings.APP_VERSION
+
+logger = logging.getLogger("devices.health")
 
 
 def _device_config(device):
@@ -78,6 +82,20 @@ def device_detail(request, pk):
 @require_GET
 def api_health(request):
     return JsonResponse({"status": "ok", "version": VERSION})
+
+
+@require_GET
+def api_ready(request):
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+    except Exception:
+        logger.exception("readiness check failed")
+        return JsonResponse(
+            {"status": "error", "database": "unavailable"}, status=503
+        )
+    return JsonResponse({"status": "ok", "database": "ok", "version": VERSION})
 
 
 @require_GET
