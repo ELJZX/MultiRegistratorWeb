@@ -31,7 +31,7 @@ function Read-DotEnv {
     if (-not (Test-Path -LiteralPath $Path)) {
         throw "Env file not found: $Path"
     }
-    foreach ($line in Get-Content -LiteralPath $Path) {
+    foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
         $trimmed = $line.Trim()
         if (-not $trimmed -or $trimmed.StartsWith("#")) {
             continue
