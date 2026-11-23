@@ -28,7 +28,7 @@ python manage.py test devices.tests.test_modbus.DecodeTests.test_uint16
 npm run test:js                   # Node 18+; no npm install or frontend build
 ```
 
-- `manage.py test` does not run the JS tests. There is no lint/format/typecheck/CI config; those two test commands are the available checks.
+- `manage.py test` does not run the JS tests. `.github/workflows/ci.yml` runs both suites (Django on SQLite and PostgreSQL), checks for missing migrations, and smoke-tests the Docker Compose stack. There is no lint/format/typecheck config yet.
 - Local default DB is SQLite; setting `DB_HOST` switches to PostgreSQL. Docker uses PostgreSQL 16.
 - Docker: `docker compose up -d --build` (UI on :8080); demo: `docker compose --profile demo up -d --build`. `web` and `poller` are separate services — polling must not be added to the web process.
 
