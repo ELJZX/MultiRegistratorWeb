@@ -1,5 +1,8 @@
 .git
+.github
 .gitignore
+AGENTS.md
+scripts
 .venv
 venv
 __pycache__

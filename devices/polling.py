@@ -7,10 +7,18 @@ from django.db import close_old_connections
 from django.utils import timezone
 
 from .modbus import ChannelSpec, DeviceSpec, ModbusReader, ModbusReadError
-from .models import Device
+from .models import Device, PollerHeartbeat
 from .storage import save_sample
 
 logger = logging.getLogger("devices.poller")
+
+HEARTBEAT_INTERVAL = 5.0
+
+
+def update_heartbeat():
+    PollerHeartbeat.objects.update_or_create(
+        pk=1, defaults={"last_seen": timezone.now()}
+    )
 
 
 def build_spec(device):
@@ -97,6 +105,7 @@ def poll_device(device, modbus_reader):
 
 
 def poll_once(modbus_reader=None):
+    update_heartbeat()
     owned = modbus_reader is None
     reader = modbus_reader or ModbusReader()
     results = []
@@ -121,9 +130,20 @@ class Poller:
         self._devices = {}
         self._next_poll = {}
         self._last_reload = 0.0
+        self._last_heartbeat = 0.0
 
     def stop(self):
         self._stop.set()
+
+    def _heartbeat(self):
+        now = time.monotonic()
+        if now - self._last_heartbeat < HEARTBEAT_INTERVAL:
+            return
+        self._last_heartbeat = now
+        try:
+            update_heartbeat()
+        except Exception:
+            logger.exception("cannot update poller heartbeat")
 
     def _reload(self):
         close_old_connections()
@@ -144,6 +164,7 @@ class Poller:
         logger.info("poller started (tick=%ss)", self.tick)
         try:
             while not self._stop.is_set():
+                self._heartbeat()
                 try:
                     now = time.monotonic()
                     if now - self._last_reload >= self.reload_interval:
@@ -153,6 +174,7 @@ class Poller:
                         if self._stop.is_set():
                             break
                         if now >= self._next_poll.get(pk, 0.0):
+                            self._heartbeat()
                             try:
                                 poll_device(device, self.reader)
                             except Exception:

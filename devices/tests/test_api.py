@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -28,6 +29,21 @@ class ApiTests(TestCase):
         response = self.client.get("/api/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
+
+    def test_ready(self):
+        response = self.client.get("/api/ready")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ok")
+        self.assertEqual(response.json()["database"], "ok")
+
+    def test_ready_returns_503_when_database_is_unavailable(self):
+        with self.assertLogs("devices.health", level="ERROR"):
+            with mock.patch(
+                "devices.views.connection.cursor", side_effect=RuntimeError("db down")
+            ):
+                response = self.client.get("/api/ready")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["database"], "unavailable")
 
     def test_info(self):
         response = self.client.get("/api/info")

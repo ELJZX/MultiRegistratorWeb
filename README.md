@@ -112,6 +112,8 @@ archive/                CSV-архив (если ARCHIVE_STORAGE=files|both)
 - `db` — PostgreSQL 16;
 - `web` — Django + Gunicorn (веб-интерфейс и API);
 - `poller` — отдельный процесс `python manage.py poll_devices` (фоновый опрос);
+  пишет heartbeat, по которому `poller_health` проверяет, что опрос действительно
+  идёт;
 - `testdevice` и `seed-demo` — опциональный демо-профиль с эмулятором.
 
 Опрос вынесен в отдельный процесс, чтобы веб-сервер мог работать в несколько
@@ -161,6 +163,31 @@ docker compose --profile demo up -d --build
 ```bash
 APP_VERSION=1.2.0 docker compose up -d --build
 ```
+
+### Production на одной VM
+
+`docker-compose.prod.yml` — отдельный стек для production: тянет готовый образ
+из registry, не собирает его на сервере, запускает миграции один раз через
+one-shot сервис `migrate` и не публикует PostgreSQL наружу.
+
+Заполните `.env`:
+
+- `APP_IMAGE` — репозиторий образа без тега, например
+  `ghcr.io/eljzx/multiregistrator-web`;
+- `APP_VERSION` — версия/тег образа;
+- `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `POSTGRES_DB`, `POSTGRES_USER`,
+  `POSTGRES_PASSWORD` — обязательные значения без небезопасных дефолтов.
+
+Запуск:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env pull
+docker compose -f docker-compose.prod.yml --env-file .env up -d
+curl http://localhost:8080/api/ready
+```
+
+Для staging на той же VM используйте отдельные `COMPOSE_PROJECT_NAME`,
+`WEB_PORT` и `.env`; контейнеры и volumes будут разделены по имени проекта.
 
 ### Пользователи и права
 
@@ -297,7 +324,8 @@ timestamp,temperature,humidity
 
 | Метод | Путь | Описание |
 | --- | --- | --- |
-| GET | `/api/health` | проверка доступности и версия |
+| GET | `/api/health` | liveness: процесс отвечает, версия |
+| GET | `/api/ready` | readiness: процесс и подключение к БД |
 | GET | `/api/info` | информация о приложении |
 | GET | `/api/devices` | список устройств и их состояние |
 | GET | `/api/devices/{id}` | одно устройство (по id или host) |
@@ -314,12 +342,15 @@ timestamp,temperature,humidity
 | Переменная | По умолчанию | Назначение |
 | --- | --- | --- |
 | `APP_VERSION` | `1.2.0` | версия сервиса (API и Docker-образ) |
+| `APP_IMAGE` | — | репозиторий образа без тега; обязателен для `docker-compose.prod.yml` |
 | `DJANGO_SECRET_KEY` | dev-ключ | секретный ключ Django |
 | `DJANGO_DEBUG` | `1` | режим отладки |
 | `DJANGO_ALLOWED_HOSTS` | `*` | разрешённые хосты (через запятую) |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | — | доверенные origins для HTTPS/reverse proxy |
 | `DJANGO_TIME_ZONE` | `UTC` | часовой пояс |
 | `DB_HOST` | — | если задан, используется PostgreSQL |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_PORT` | — | параметры PostgreSQL |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | `multiregistrator` | параметры PostgreSQL в compose |
 | `ARCHIVE_STORAGE` | `database` | `files`, `database` или `both` |
 | `ARCHIVE_DIR` | `./archive` | каталог CSV-архива |
 | `AUDIT_LOG_ENABLED` | `1` | запись журнала действий пользователей |
@@ -350,10 +381,36 @@ Django-тесты покрывают декодирование регистро
 JS-тесты покрывают ограничения масштабирования, привязку к данным, шаг сетки,
 «круглые» деления оси Y, прореживание подписей и сброс к базовому виду.
 
+## CI
+
+GitHub Actions workflow `.github/workflows/ci.yml` запускается на push в `main` и
+на pull request:
+
+- Django-тесты на SQLite и PostgreSQL;
+- JS-тесты графика;
+- проверка, что изменения моделей закоммичены вместе с миграциями;
+- сборка Docker-образа и smoke-тест compose-стека с PostgreSQL.
+
+Секреты для CI не требуются. Smoke-тест собирает образ с тегом `ci`, проверяет
+`/api/health`, `/api/ready` и `/api/info`, после чего удаляет контейнеры и volumes.
+
+## CD и выкладка
+
+- `main` -> staging: сборка образа с тегом `sha-<short>`, публикация в GHCR и
+  деплой staging.
+- Тег `vX.Y.Z` -> production: проверка версии и тестов, публикация образа,
+  smoke-тест production-стека, деплой после approve.
+- Перед миграциями `deploy.ps1` делает `pg_dump`; при неудачном healthcheck
+  автоматически возвращает предыдущий тег.
+
+Production сейчас рассчитан на одну Windows VM с Docker Desktop (Linux
+containers) и SSH-деплой. Подробная настройка окружений, секретов, GHCR,
+бэкапов и отката — в [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 ## Версионирование и Docker-образы
 
 - Версия сервиса задаётся `APP_VERSION` (по умолчанию `1.2.0`) и возвращается
-  API `/api/health` и `/api/info`.
+  API `/api/health`, `/api/ready` и `/api/info`.
 - Docker-образы тегируются версией: `multiregistrator-web:${APP_VERSION}`.
 - В образ добавляется метка `org.opencontainers.image.version`.
 - Релиз сопровождается git-тегом `v1.2.0`.

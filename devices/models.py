@@ -44,6 +44,18 @@ class Device(models.Model):
         return "online" if self.online else "offline"
 
 
+class PollerHeartbeat(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    last_seen = models.DateTimeField("Последняя активность", auto_now=True)
+
+    class Meta:
+        verbose_name = "Heartbeat поллера"
+        verbose_name_plural = "Heartbeat поллера"
+
+    def __str__(self):
+        return f"poller @ {self.last_seen:%Y-%m-%d %H:%M:%S}"
+
+
 class Channel(models.Model):
     class Function(models.TextChoices):
         HOLDING = "holding", "Holding (03)"

@@ -1,0 +1,117 @@
+# Production stack for a single VM.
+# Images are pulled from a registry; never built on the production host.
+# Required: APP_IMAGE, APP_VERSION, DJANGO_SECRET_KEY, DJANGO_ALLOWED_HOSTS,
+# POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD.
+# Usage:
+#   docker compose -f docker-compose.prod.yml --env-file .env pull
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d
+
+x-app-env: &app-env
+  APP_VERSION: "${APP_VERSION:?set APP_VERSION}"
+  DJANGO_DEBUG: "0"
+  DJANGO_SECRET_KEY: "${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY}"
+  DJANGO_ALLOWED_HOSTS: "${DJANGO_ALLOWED_HOSTS:?set DJANGO_ALLOWED_HOSTS}"
+  DJANGO_CSRF_TRUSTED_ORIGINS: "${DJANGO_CSRF_TRUSTED_ORIGINS:-}"
+  DJANGO_TIME_ZONE: "${DJANGO_TIME_ZONE:-UTC}"
+  DB_HOST: db
+  DB_PORT: "5432"
+  DB_NAME: "${POSTGRES_DB:?set POSTGRES_DB}"
+  DB_USER: "${POSTGRES_USER:?set POSTGRES_USER}"
+  DB_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}"
+  ARCHIVE_STORAGE: "${ARCHIVE_STORAGE:-database}"
+  AUDIT_LOG_ENABLED: "${AUDIT_LOG_ENABLED:-1}"
+  POLLER_TICK: "0.2"
+  POLLER_RELOAD_INTERVAL: "5.0"
+
+x-app-image: &app-image "${APP_IMAGE:?set APP_IMAGE}:${APP_VERSION:?set APP_VERSION}"
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:?set POSTGRES_DB}"
+      POSTGRES_USER: "${POSTGRES_USER:?set POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    stop_grace_period: 60s
+    logging: *default-logging
+
+  migrate:
+    image: *app-image
+    restart: "no"
+    command: python manage.py migrate --noinput
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *default-logging
+
+  web:
+    image: *app-image
+    restart: unless-stopped
+    command: >
+      gunicorn multiregistrator_web.wsgi:application
+      --bind 0.0.0.0:8000
+      --workers 3
+      --timeout 120
+      --access-logfile -
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${WEB_PORT:-8080}:8000"
+    volumes:
+      - archive-data:/app/archive
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=3).status == 200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    stop_grace_period: 30s
+    logging: *default-logging
+
+  poller:
+    image: *app-image
+    restart: unless-stopped
+    command: python manage.py poll_devices
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - archive-data:/app/archive
+    healthcheck:
+      test: ["CMD", "python", "manage.py", "poller_health", "--max-age", "120"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 30s
+    logging: *default-logging
+
+volumes:
+  postgres-data:
+  archive-data:

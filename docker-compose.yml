@@ -38,6 +38,17 @@ services:
       timeout: 5s
       retries: 12
 
+  migrate:
+    build: *app-build
+    image: "multiregistrator-web:${APP_VERSION:-1.2.0}"
+    container_name: multiregistrator-migrate
+    restart: "no"
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    command: python manage.py migrate --noinput
+
   web:
     build: *app-build
     image: "multiregistrator-web:${APP_VERSION:-1.2.0}"
@@ -47,16 +58,17 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "${WEB_PORT:-8080}:8000"
     volumes:
       - archive-data:/app/archive
     command: >
-      sh -c "python manage.py migrate --noinput &&
-             python manage.py collectstatic --noinput &&
+      sh -c "python manage.py collectstatic --noinput &&
              gunicorn multiregistrator_web.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120 --access-logfile -"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health').status == 200 else 1)"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=3).status == 200 else 1)"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -71,13 +83,17 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      web:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - archive-data:/app/archive
-    command: >
-      sh -c "python manage.py migrate --noinput &&
-             python manage.py poll_devices"
+    command: python manage.py poll_devices
+    healthcheck:
+      test: ["CMD", "python", "manage.py", "poller_health", "--max-age", "120"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   testdevice:
     build: *app-build

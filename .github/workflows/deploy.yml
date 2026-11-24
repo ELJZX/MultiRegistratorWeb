@@ -1,0 +1,85 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      project_name:
+        required: false
+        type: string
+        default: multiregistrator
+      env_file:
+        required: false
+        type: string
+        default: .env.production
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [staging, production]
+      version:
+        description: Image tag to deploy (for example 1.3.0 or sha-abc1234)
+        required: true
+        type: string
+      project_name:
+        description: Compose project name
+        required: false
+        default: multiregistrator
+        type: string
+      env_file:
+        description: Environment file name on the VM
+        required: false
+        default: .env.production
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-vm
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.version }} to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Upload deployment files
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          ssh "${DEPLOY_USER}@${DEPLOY_HOST}" "powershell -NoProfile -Command \"New-Item -ItemType Directory -Force -Path '${DEPLOY_PATH}' | Out-Null\""
+          scp docker-compose.prod.yml "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/docker-compose.prod.yml"
+          scp scripts/deploy.ps1 "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/deploy.ps1"
+      - name: Run deployment
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          VERSION: ${{ inputs.version }}
+          PROJECT_NAME: ${{ inputs.project_name }}
+          ENV_FILE: ${{ inputs.env_file }}
+        run: |
+          ssh "${DEPLOY_USER}@${DEPLOY_HOST}" "powershell -NoProfile -ExecutionPolicy Bypass -File '${DEPLOY_PATH}/deploy.ps1' -Version '${VERSION}' -EnvFile '${DEPLOY_PATH}/${ENV_FILE}' -ComposeFile '${DEPLOY_PATH}/docker-compose.prod.yml' -ProjectName '${PROJECT_NAME}'"

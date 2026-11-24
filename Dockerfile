@@ -1,8 +1,11 @@
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
 ARG APP_VERSION=1.2.0
+ARG GIT_REVISION=unknown
 LABEL org.opencontainers.image.title="MultiRegistrator Web" \
-      org.opencontainers.image.version="${APP_VERSION}"
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_REVISION}" \
+      org.opencontainers.image.source="https://github.com/ELJZX/MultiRegistratorWeb"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -15,8 +18,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Build the WhiteNoise manifest so production containers do not need to run
+# collectstatic at startup.
 RUN mkdir -p /app/archive /app/staticfiles /app/logs \
-    && python manage.py collectstatic --noinput
+    && DJANGO_DEBUG=0 python manage.py collectstatic --noinput
 
 EXPOSE 8000
 
