@@ -71,7 +71,7 @@ gh api repos/ELJZX/MultiRegistratorWeb/actions/runners
 Пример `.env.production`:
 
 ```dotenv
-APP_IMAGE=ghcr.io/eljzx/multiregistrator-web
+APP_IMAGE=multiregistrator-web
 APP_VERSION=1.2.0
 DJANGO_DEBUG=0
 DJANGO_SECRET_KEY=<длинный случайный ключ>
