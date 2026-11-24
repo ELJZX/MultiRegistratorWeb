@@ -396,16 +396,17 @@ GitHub Actions workflow `.github/workflows/ci.yml` запускается на p
 
 ## CD и выкладка
 
-- `main` -> staging: сборка образа с тегом `sha-<short>`, публикация в GHCR и
-  деплой staging.
-- Тег `vX.Y.Z` -> production: проверка версии и тестов, публикация образа,
-  smoke-тест production-стека, деплой после approve.
+- `main` -> production: после успешного `CI` workflow `Main deploy` собирает
+  образ с тегом `sha-<short>` и сразу обновляет `multiregistratorweb` на 8010.
+- Тег `vX.Y.Z` -> release: проверка версии и тестов, публикация образа в GHCR,
+  smoke-тест и выкладка production.
 - Перед миграциями `deploy.ps1` делает `pg_dump`; при неудачном healthcheck
-  автоматически возвращает предыдущий тег.
+  автоматически возвращает предыдущую версию.
 
-Production сейчас рассчитан на self-hosted GitHub Actions runner на Windows-хосте
-с Docker Desktop (Linux containers); отдельная VM и SSH не нужны. Подробная
-настройка окружений, секретов, GHCR, runner, бэкапов и отката — в
+Production рассчитан на self-hosted GitHub Actions runner на Windows-хосте
+с Docker Desktop (Linux containers); отдельная VM и SSH не нужны. Staging
+отключён, production обновляется автоматически после каждого успешного CI на
+`main`. Подробная настройка окружений, секретов, runner, бэкапов и отката — в
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Версионирование и Docker-образы

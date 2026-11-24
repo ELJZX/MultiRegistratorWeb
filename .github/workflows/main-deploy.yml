@@ -1,0 +1,48 @@
+name: Main deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-deploy
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Resolve version
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Build image tag
+        id: meta
+        shell: bash
+        env:
+          REVISION: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: echo "version=sha-${REVISION::7}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy main to production
+    needs: prepare
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: production
+      version: ${{ needs.prepare.outputs.version }}
+      project_name: multiregistratorweb
+      env_file: .env.production
+      compose_file: docker-compose.selfhosted.yml
+    secrets: inherit
