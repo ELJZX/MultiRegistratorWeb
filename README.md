@@ -164,30 +164,33 @@ docker compose --profile demo up -d --build
 APP_VERSION=1.2.0 docker compose up -d --build
 ```
 
-### Production на одной VM
+### Production на self-hosted runner
 
-`docker-compose.prod.yml` — отдельный стек для production: тянет готовый образ
+`docker-compose.prod.yml` — универсальный production-стек: тянет готовый образ
 из registry, не собирает его на сервере, запускает миграции один раз через
 one-shot сервис `migrate` и не публикует PostgreSQL наружу.
 
+Фактический production этого репозитория использует
+`docker-compose.selfhosted.yml`: он сохраняет существующие контейнеры
+`multiregistrator-*`, volume `multiregistratorweb_*` и сеть
+`hub_multiregistator`. Каждый успешный CI на `main` автоматически обновляет
+`multiregistratorweb` на 8010; тег `vX.Y.Z` запускает отдельный release-путь.
+Staging-окружения нет.
+
 Заполните `.env`:
 
-- `APP_IMAGE` — репозиторий образа без тега, например
-  `ghcr.io/eljzx/multiregistrator-web`;
+- `APP_IMAGE` — локальное имя образа `multiregistrator-web` или registry-репозиторий;
 - `APP_VERSION` — версия/тег образа;
 - `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `POSTGRES_DB`, `POSTGRES_USER`,
   `POSTGRES_PASSWORD` — обязательные значения без небезопасных дефолтов.
 
-Запуск:
+Ручной запуск универсального стека:
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env pull
 docker compose -f docker-compose.prod.yml --env-file .env up -d
 curl http://localhost:8080/api/ready
 ```
-
-Для staging на той же VM используйте отдельные `COMPOSE_PROJECT_NAME`,
-`WEB_PORT` и `.env`; контейнеры и volumes будут разделены по имени проекта.
 
 ### Пользователи и права
 
