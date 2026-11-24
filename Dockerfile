@@ -1,4 +1,4 @@
-FROM python:3.12-slim-bookworm
+FROM python:3.15-slim-bookworm
 
 ARG APP_VERSION=1.2.0
 ARG GIT_REVISION=unknown
