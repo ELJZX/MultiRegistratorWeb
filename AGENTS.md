@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Django 5 + Modbus TCP data logger. Django project package: `multiregistrator_web`; the only local app is `devices`. UI text, admin labels, command help and `README.md` are Russian — keep new user-facing strings Russian. `README.md` is the detailed reference for env vars, API, storage modes and the demo flow.
+Django 5 + Modbus TCP data logger. Django project package: `multiregistrator_web`; the only local app is `devices`. UI text, admin labels, command help and `README.md` are Russian — keep new user-facing strings Russian. `README.md` is the detailed reference for env vars, API, storage modes and the demo flow. CI uses Python 3.12 and Node 20.
 
 ## Reliability rules
 
@@ -23,27 +23,31 @@ pip install -r requirements.txt
 python manage.py migrate
 python manage.py runserver        # web UI/API only; it never polls devices
 python manage.py poll_devices     # separate long-running poller (--once for one cycle)
+python manage.py check
+python manage.py makemigrations --check --dry-run
 python manage.py test             # Django suite; simulator tests use real localhost sockets
 python manage.py test devices.tests.test_modbus.DecodeTests.test_uint16
-npm run test:js                   # Node 18+; no npm install or frontend build
+npm run test:js                   # Node 20 in CI; no npm install or frontend build
 ```
 
-- `manage.py test` does not run the JS tests. `.github/workflows/ci.yml` runs both suites (Django on SQLite and PostgreSQL), checks for missing migrations, and smoke-tests the Docker Compose stack. There is no lint/format/typecheck config yet.
+- CI (`.github/workflows/ci.yml`) runs `check`, the migration-drift check, both suites (Django on SQLite and PostgreSQL), and a Docker Compose smoke test. There is no lint/format/typecheck config; use the commands above as the verification gate.
 - Runtime dependencies are exact-pinned in `requirements.txt`; Dependabot updates pip, npm, Docker and GitHub Actions weekly.
 - Local default DB is SQLite; setting `DB_HOST` switches to PostgreSQL. Docker uses PostgreSQL 16.
 - Docker: `docker compose up -d --build` (UI on :8080); demo: `docker compose --profile demo up -d --build`. `web` and `poller` are separate services and wait for a one-shot `migrate` service — polling must not be added to the web process.
 - Production stack: `docker-compose.prod.yml` pulls an immutable image, requires `APP_IMAGE`/`APP_VERSION` and real secrets, runs migrations once via a one-shot `migrate` service, and does not expose PostgreSQL. The Dockerfile builds the WhiteNoise manifest at build time; production does not run `collectstatic` at startup.
-- Release/deploy: bump every `APP_VERSION` marker, run `python scripts/check_version.py X.Y.Z`, then tag `vX.Y.Z`. `release.yml` publishes to GHCR, smoke-tests the production stack and calls `deploy.yml`; `staging.yml` deploys `main` after CI. Deployment uses SSH + `scripts/deploy.ps1` on a Windows VM with Docker Desktop (Linux containers) and needs GHCR login on the VM. See `docs/DEPLOYMENT.md`.
+- Release/deploy: bump every `APP_VERSION` marker, run `python scripts/check_version.py X.Y.Z`, then tag `vX.Y.Z`. `release.yml` publishes to GHCR, smoke-tests the production stack and calls `deploy.yml`; `staging.yml` deploys `main` after CI. Deployment runs on the self-hosted Windows runner (`self-hosted, Windows, X64, mrw`), logs in to GHCR with `GITHUB_TOKEN`, and writes the env file from the `ENV_FILE_CONTENT` environment secret. Production uses `docker-compose.selfhosted.yml` and adopts the existing `multiregistrator-*` containers/volumes; staging uses `docker-compose.prod.yml`. See `docs/DEPLOYMENT.md`.
 
 ## Architecture and gotchas
 
 - `ARCHIVE_STORAGE=files|database|both` controls writes and reads. With `files`, no `Measurement` rows are written; with `both`, reads come from the DB. File-mode tests must use `override_settings` and reset `devices.storage._writer`/`_reader` (see `devices/tests/test_models_storage.py`).
-- CSV archive timestamps are naive local time (`DJANGO_TIME_ZONE`); DB timestamps are aware UTC (`USE_TZ=True`).
-- `devices/modbus.py` supports both current `device_id=` and legacy pymodbus `slave=` keyword arguments; keep that fallback when changing Modbus calls.
+- CSV archive timestamps are naive local time (`DJANGO_TIME_ZONE`; local settings default UTC, Docker/.env default `Europe/Moscow`); DB timestamps are aware UTC (`USE_TZ=True`). In Docker, `web` and `poller` share the `archive-data` volume, which `files`/`both` relies on.
+- `devices/modbus.py` supports both current `device_id=` and legacy pymodbus `slave=` keyword arguments; keep that fallback when changing Modbus calls. `settings.MODBUS_MAX_REGISTERS` is currently unused: block size is `MAX_REGISTERS_PER_REQUEST=125` in `devices/modbus.py`.
 - Poller heartbeat: the `PollerHeartbeat` singleton is updated every 5s; `python manage.py poller_health --max-age 120` is the poller Docker healthcheck and deploy gate. Keep heartbeat updates inside the per-device loop so a long poll does not look like a dead poller.
 - APIs are plain Django `JsonResponse` views (no DRF) in `devices/views.py`, routed in `devices/urls.py`. API paths have no trailing slash; page paths do. `/api/health` is liveness; `/api/ready` checks the DB and is used by production healthchecks. `/api/*` is intentionally public for integrations; page views use `@login_required`. Logout is POST-only.
 - `UserActionLogMiddleware` logs GET page views and ignores `/api/`, `/static/`, `/media/`, `/admin/`. `api_data` logs a chart event unless `reason=live`; live polling must stay out of `UserEventLog`.
 - Chart code: `devices/static/devices/chart-utils.js` is a UMD module shared by the browser and Node tests; `chart.js` holds the Chart.js integration and live polling. Keep exports, JS tests and script order (`chart-utils` before `chart`) in sync. Chart.js/zoom/Hammer assets are vendored under `devices/static/devices/vendor/`; there is no bundler.
+- Channel scan/search lives in `DeviceAdmin` (`devices/admin.py`) and `devices/discovery.py`; it probes only holding/input and proposes plausible `float32` candidates. Other channel types are configured manually.
+- Key modules: `devices/archive.py` implements the CSV format, `devices/simulator.py` is the Modbus TCP test server, and `devices/apps.py` registers the auth audit signals.
 - Shared test fixture: `make_device()` in `devices/tests/test_models_storage.py` creates a device plus one `float32` channel and is imported by other test modules.
 - The demo register map is defined in `devices/management/commands/seed_demo.py` and `test_device.py`, and exercised in `devices/tests/test_simulator.py`; update them together.
 - `APP_VERSION` defaults are duplicated in `multiregistrator_web/settings.py`, `Dockerfile`, `docker-compose.yml`, `.env.example`, `package.json` and `README.md`; `devices/views.py` reads `settings.APP_VERSION`. Run `python scripts/check_version.py X.Y.Z` before tagging and tag `vX.Y.Z` on release.

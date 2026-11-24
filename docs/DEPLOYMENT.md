@@ -9,21 +9,20 @@
 
 Production-образы неизменяемые: выкладка идёт по конкретному тегу, не по `latest`.
 
+Деплой выполняется на self-hosted GitHub Actions runner, который работает на том же Windows-хосте с Docker Desktop. SSH и отдельная VM больше не нужны. Runner ходит в GHCR от имени `GITHUB_TOKEN`, поэтому `docker login` на хосте вручную не требуется.
+
 Проверка готовности выкладки — `/api/ready` (процесс + БД); `/api/health` остаётся liveness-проверкой. Дополнительно `poller` пишет heartbeat, а `deploy.ps1` и Docker healthcheck проверяют его командой `python manage.py poller_health --max-age 120`.
 
-## Требования к Windows VM
+## Требования к хосту
 
 - Docker Desktop в режиме **Linux containers** (WSL2). Windows containers не подходят.
-- Включён OpenSSH Server, порт доступен только с доверенных адресов.
-- Docker Desktop запускается автоматически. Для полностью unattended-работы нужен автологин пользователя либо переход на Linux VM с Docker Engine.
-- На VM выполнена команда `docker login ghcr.io` с PAT, у которого есть только `read:packages`; либо пакет GHCR сделан публичным.
-- Каталог выкладки, например `C:/multiregistrator`, без пробелов в пути:
-  - `.env.production` и `.env.staging` — секреты и параметры;
-  - `docker-compose.prod.yml` и `deploy.ps1` — обновляются workflow автоматически;
-  - `backups/` — дампы PostgreSQL;
-  - `.deployed-version.<project>` — последняя успешная версия для отката.
-
-Docker Desktop на Windows — не серверный runtime. Если нужна круглосуточная предсказуемая работа без зависимости от интерактивной сессии, используйте Linux VM с Docker Engine; workflow деплоя меняется только в части транспорта.
+- GitHub Actions self-hosted runner с метками `self-hosted`, `Windows`, `X64`, `mrw`.
+- Runner запускается в пользовательской сессии, где работает Docker Desktop. Не устанавливайте его как службу `LocalSystem`: у такой службы обычно нет доступа к Docker Desktop.
+- Автозапуск runner — через ярлык/скрипт в папке Startup пользователя. Docker Desktop также должен запускаться при входе.
+- Каталоги выкладки:
+  - `D:\multiregistrator` — production; использует существующие volume `multiregistratorweb_*` и сеть `hub_multiregistator`;
+  - `D:\multiregistrator-staging` — staging на отдельном порту.
+- В каталогах выкладки workflow создаёт `.env.production`/`.env.staging`, `docker-compose*.yml`, `deploy.ps1`, `backups/` и `.deployed-version.<project>`.
 
 ## GitHub Environments
 
@@ -33,35 +32,66 @@ Docker Desktop на Windows — не серверный runtime. Если нуж
 
 | Секрет | Назначение |
 | --- | --- |
-| `DEPLOY_HOST` | IP или DNS Windows VM |
-| `DEPLOY_USER` | пользователь SSH |
-| `DEPLOY_PATH` | каталог выкладки, например `C:/multiregistrator` |
-| `DEPLOY_SSH_KEY` | приватный ключ без пароля |
-| `DEPLOY_KNOWN_HOSTS` | строка из `ssh-keyscan -t ed25519 <host>` |
+| `DEPLOY_PATH` | локальный каталог выкладки, например `D:\multiregistrator` |
+| `ENV_FILE_CONTENT` | полное содержимое `.env.production` или `.env.staging` |
 
-Публичный ключ добавьте в `C:\Users\<user>\.ssh\authorized_keys` на VM.
+SSH-секреты (`DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`) больше не используются.
 
-## Переменные на VM
+## Self-hosted runner
 
-`.env.production` и `.env.staging` должны содержать как минимум:
+Регистрация (нужны права администратора репозитория):
+
+```powershell
+$token = gh api --method POST repos/ELJZX/MultiRegistratorWeb/actions/runners/registration-token --jq .token
+cd D:\actions-runner-multiregistrator
+.\config.cmd --unattended `
+  --url https://github.com/ELJZX/MultiRegistratorWeb `
+  --token $token `
+  --name mrw-dockerdesktop `
+  --labels self-hosted,windows,x64,mrw `
+  --work _work `
+  --runnergroup Default `
+  --replace
+```
+
+Запуск:
+
+```powershell
+.\run.cmd
+```
+
+Для автозапуска положите в `shell:startup` скрипт, который запускает `D:\actions-runner-multiregistrator\run.cmd` скрыто. Проверка статуса:
+
+```powershell
+gh api repos/ELJZX/MultiRegistratorWeb/actions/runners
+```
+
+## Файлы окружения
+
+Пример `.env.production`:
 
 ```dotenv
 APP_IMAGE=ghcr.io/eljzx/multiregistrator-web
-APP_VERSION=<version>
+APP_VERSION=1.2.0
+DJANGO_DEBUG=0
 DJANGO_SECRET_KEY=<длинный случайный ключ>
-DJANGO_ALLOWED_HOSTS=meters.example.com
-DJANGO_CSRF_TRUSTED_ORIGINS=https://meters.example.com
+DJANGO_ALLOWED_HOSTS=*
+DJANGO_CSRF_TRUSTED_ORIGINS=
+DJANGO_TIME_ZONE=Europe/Moscow
 POSTGRES_DB=multiregistrator
 POSTGRES_USER=multiregistrator
-POSTGRES_PASSWORD=<сильный пароль>
-WEB_PORT=8080
+POSTGRES_PASSWORD=<пароль>
+POSTGRES_PORT=5434
+WEB_PORT=8010
 ARCHIVE_STORAGE=database
 AUDIT_LOG_ENABLED=1
 ```
 
-Для staging на той же VM используйте отдельные `.env.staging`, `WEB_PORT` (например, `8081`) и project name `multiregistrator-staging`; workflow передаёт его через `-p`. Контейнеры и volumes будут разделены по имени проекта.
-
 `APP_VERSION` в файле — значение по умолчанию. Workflow передаёт конкретную версию в `deploy.ps1`, и она имеет приоритет.
+
+Production использует `docker-compose.selfhosted.yml`: он намеренно сохраняет имена контейнеров `multiregistrator-*`, volume `multiregistratorweb_*` и сеть `hub_multiregistator`, поэтому обновление не теряет базу. Staging использует `docker-compose.prod.yml` с отдельным project name и портом.
+
+При первом переключении production на этот compose сохраните прежний `POSTGRES_PASSWORD`: PostgreSQL не меняет пароль существующего volume при изменении переменной.
 
 ## Релиз
 
@@ -94,11 +124,11 @@ AUDIT_LOG_ENABLED=1
 Ручной откат:
 
 - запустите workflow `Deploy` с `environment=production` и предыдущим `version`;
-- либо на VM:
+- либо на хосте:
 
   ```powershell
   $env:APP_VERSION = "1.2.0"
-  docker compose -f docker-compose.prod.yml --env-file .env.production -p multiregistrator up -d
+  docker compose -f docker-compose.selfhosted.yml --env-file .env.production -p multiregistratorweb up -d
   ```
 
 Миграции должны быть backward-compatible. Если новая миграция разрушительная, автоматический откат кода не восстановит данные — нужен restore из дампа.
@@ -111,13 +141,13 @@ AUDIT_LOG_ENABLED=1
 - хранит последние 14 дампов (`-BackupRetention`);
 - не начинает выкладку, если БД уже развёрнута, но контейнер `db` не запущен.
 
-Дампы лежат на той же VM, поэтому их нужно регулярно копировать на другой носитель. Восстановление:
+Дампы лежат на том же хосте, поэтому их нужно регулярно копировать на другой носитель. Восстановление:
 
 ```powershell
-docker compose -f docker-compose.prod.yml --env-file .env.production -p multiregistrator stop web poller
-docker compose -f docker-compose.prod.yml --env-file .env.production -p multiregistrator cp "backups\db_20260101_120000.dump" db:/tmp/restore.dump
-docker compose -f docker-compose.prod.yml --env-file .env.production -p multiregistrator exec -T db pg_restore -U multiregistrator -d multiregistrator --clean --if-exists /tmp/restore.dump
-docker compose -f docker-compose.prod.yml --env-file .env.production -p multiregistrator up -d
+docker compose -f docker-compose.selfhosted.yml --env-file .env.production -p multiregistratorweb stop web poller
+docker compose -f docker-compose.selfhosted.yml --env-file .env.production -p multiregistratorweb cp "backups\db_20260101_120000.dump" db:/tmp/restore.dump
+docker compose -f docker-compose.selfhosted.yml --env-file .env.production -p multiregistratorweb exec -T db pg_restore -U multiregistrator -d multiregistrator --clean --if-exists /tmp/restore.dump
+docker compose -f docker-compose.selfhosted.yml --env-file .env.production -p multiregistratorweb up -d
 ```
 
 Перед restore проверьте имя пользователя и базы из `.env.production`.

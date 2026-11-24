@@ -403,9 +403,10 @@ GitHub Actions workflow `.github/workflows/ci.yml` запускается на p
 - Перед миграциями `deploy.ps1` делает `pg_dump`; при неудачном healthcheck
   автоматически возвращает предыдущий тег.
 
-Production сейчас рассчитан на одну Windows VM с Docker Desktop (Linux
-containers) и SSH-деплой. Подробная настройка окружений, секретов, GHCR,
-бэкапов и отката — в [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Production сейчас рассчитан на self-hosted GitHub Actions runner на Windows-хосте
+с Docker Desktop (Linux containers); отдельная VM и SSH не нужны. Подробная
+настройка окружений, секретов, GHCR, runner, бэкапов и отката — в
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Версионирование и Docker-образы
 

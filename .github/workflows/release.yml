@@ -180,6 +180,7 @@ jobs:
     with:
       environment: production
       version: ${{ needs.verify.outputs.version }}
-      project_name: multiregistrator
+      project_name: multiregistratorweb
       env_file: .env.production
+      compose_file: docker-compose.selfhosted.yml
     secrets: inherit

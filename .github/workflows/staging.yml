@@ -73,4 +73,5 @@ jobs:
       version: ${{ needs.build-push.outputs.version }}
       project_name: multiregistrator-staging
       env_file: .env.staging
+      compose_file: docker-compose.prod.yml
     secrets: inherit

@@ -1,0 +1,115 @@
+# Self-hosted production stack for the Windows Docker Desktop host.
+# It deliberately adopts the existing multiregistrator-* containers and the
+# multiregistratorweb_* volumes, so CI/CD updates the running service without
+# losing the database. Only the hub_multiregistator network is shared.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: multiregistrator-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:?set POSTGRES_DB}"
+      POSTGRES_USER: "${POSTGRES_USER:?set POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}"
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    stop_grace_period: 60s
+
+  migrate:
+    image: "${APP_IMAGE:?set APP_IMAGE}:${APP_VERSION:?set APP_VERSION}"
+    container_name: multiregistrator-migrate
+    restart: "no"
+    command: python manage.py migrate --noinput
+    environment: &app-env
+      APP_VERSION: "${APP_VERSION:?set APP_VERSION}"
+      DJANGO_DEBUG: "0"
+      DJANGO_SECRET_KEY: "${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY}"
+      DJANGO_ALLOWED_HOSTS: "${DJANGO_ALLOWED_HOSTS:?set DJANGO_ALLOWED_HOSTS}"
+      DJANGO_CSRF_TRUSTED_ORIGINS: "${DJANGO_CSRF_TRUSTED_ORIGINS:-}"
+      DJANGO_TIME_ZONE: "${DJANGO_TIME_ZONE:-UTC}"
+      DB_HOST: multiregistrator-db
+      DB_PORT: "5432"
+      DB_NAME: "${POSTGRES_DB:?set POSTGRES_DB}"
+      DB_USER: "${POSTGRES_USER:?set POSTGRES_USER}"
+      DB_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}"
+      ARCHIVE_STORAGE: "${ARCHIVE_STORAGE:-database}"
+      AUDIT_LOG_ENABLED: "${AUDIT_LOG_ENABLED:-1}"
+      POLLER_TICK: "0.2"
+      POLLER_RELOAD_INTERVAL: "5.0"
+    depends_on:
+      db:
+        condition: service_healthy
+    stop_grace_period: 30s
+
+  web:
+    image: "${APP_IMAGE:?set APP_IMAGE}:${APP_VERSION:?set APP_VERSION}"
+    container_name: multiregistrator-web
+    restart: unless-stopped
+    command: >
+      gunicorn multiregistrator_web.wsgi:application
+      --bind 0.0.0.0:8000
+      --workers 3
+      --timeout 120
+      --access-logfile -
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${WEB_PORT:-8010}:8000"
+    volumes:
+      - archive-data:/app/archive
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=3).status == 200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    stop_grace_period: 30s
+
+  poller:
+    image: "${APP_IMAGE:?set APP_IMAGE}:${APP_VERSION:?set APP_VERSION}"
+    container_name: multiregistrator-poller
+    restart: unless-stopped
+    command: python manage.py poll_devices
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - archive-data:/app/archive
+    healthcheck:
+      test: ["CMD", "python", "manage.py", "poller_health", "--max-age", "120"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 30s
+
+volumes:
+  postgres-data:
+    external: true
+    name: multiregistratorweb_postgres-data
+  archive-data:
+    external: true
+    name: multiregistratorweb_archive-data
+
+networks:
+  default:
+    external: true
+    name: hub_multiregistator
