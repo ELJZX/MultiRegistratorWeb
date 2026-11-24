@@ -176,6 +176,9 @@ jobs:
   deploy:
     name: Deploy production
     needs: [verify, build-push, smoke]
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/deploy.yml
     with:
       environment: production

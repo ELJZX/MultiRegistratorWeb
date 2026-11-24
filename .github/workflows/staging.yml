@@ -67,6 +67,9 @@ jobs:
   deploy:
     name: Deploy staging
     needs: build-push
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/deploy.yml
     with:
       environment: staging
