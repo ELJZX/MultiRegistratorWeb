@@ -12,7 +12,10 @@ param(
 
     [string]$ProjectName = "multiregistrator",
 
-    [int]$BackupRetention = 14
+    [int]$BackupRetention = 14,
+
+    # Skip "docker compose pull" when the image was built locally on the runner.
+    [switch]$SkipPull
 )
 
 $ErrorActionPreference = "Stop"
@@ -119,8 +122,12 @@ if ($running -contains "db") {
 }
 
 $env:APP_VERSION = $Version
-Write-Host "Pulling images for version $Version"
-Invoke-Compose @("pull")
+if (-not $SkipPull) {
+    Write-Host "Pulling images for version $Version"
+    Invoke-Compose @("pull")
+} else {
+    Write-Host "Skipping image pull; using the locally built image for $Version"
+}
 
 Write-Host "Starting stack (project: $ProjectName)"
 Invoke-Compose @("up", "-d", "--remove-orphans")

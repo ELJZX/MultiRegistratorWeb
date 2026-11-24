@@ -9,7 +9,7 @@
 
 Production-образы неизменяемые: выкладка идёт по конкретному тегу, не по `latest`.
 
-Деплой выполняется на self-hosted GitHub Actions runner, который работает на том же Windows-хосте с Docker Desktop. SSH и отдельная VM больше не нужны. Runner ходит в GHCR от имени `GITHUB_TOKEN`, поэтому `docker login` на хосте вручную не требуется.
+Деплой выполняется на self-hosted GitHub Actions runner, который работает на том же Windows-хосте с Docker Desktop. SSH и отдельная VM больше не нужны. Runner собирает образ локально из проверенного commit и запускает `deploy.ps1 -SkipPull`, поэтому `docker login` в GHCR для деплоя не требуется. Публикация образов в GHCR в jobs `Staging`/`Release` сохраняется для распространения и smoke-тестов.
 
 Проверка готовности выкладки — `/api/ready` (процесс + БД); `/api/health` остаётся liveness-проверкой. Дополнительно `poller` пишет heartbeat, а `deploy.ps1` и Docker healthcheck проверяют его командой `python manage.py poller_health --max-age 120`.
 

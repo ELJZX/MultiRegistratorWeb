@@ -50,7 +50,6 @@ on:
 
 permissions:
   contents: read
-  packages: read
 
 concurrency:
   group: deploy-selfhosted
@@ -65,14 +64,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Log in to GHCR
+      - name: Build image locally
         shell: powershell
         env:
-          GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $env:GHCR_TOKEN | docker login ghcr.io -u $env:GHCR_USER --password-stdin
+          docker build `
+            --build-arg "APP_VERSION=$env:VERSION" `
+            --build-arg "GIT_REVISION=$env:GITHUB_SHA" `
+            -t "multiregistrator-web:$env:VERSION" `
+            .
 
       - name: Stage deployment files
         shell: powershell
@@ -99,6 +101,7 @@ jobs:
           PROJECT_NAME: ${{ inputs.project_name }}
           ENV_FILE: ${{ inputs.env_file }}
           COMPOSE_FILE: ${{ inputs.compose_file }}
+          APP_IMAGE: multiregistrator-web
         run: |
           $ErrorActionPreference = 'Stop'
           $script = Join-Path $env:DEPLOY_PATH 'deploy.ps1'
@@ -106,9 +109,5 @@ jobs:
             -Version $env:VERSION `
             -EnvFile (Join-Path $env:DEPLOY_PATH $env:ENV_FILE) `
             -ComposeFile (Join-Path $env:DEPLOY_PATH $env:COMPOSE_FILE) `
-            -ProjectName $env:PROJECT_NAME
-
-      - name: Log out from GHCR
-        if: always()
-        shell: powershell
-        run: docker logout ghcr.io
+            -ProjectName $env:PROJECT_NAME `
+            -SkipPull
