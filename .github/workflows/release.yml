@@ -47,7 +47,7 @@ jobs:
         env:
           DJANGO_DEBUG: "1"
         run: python manage.py test -v 2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Run JS tests
