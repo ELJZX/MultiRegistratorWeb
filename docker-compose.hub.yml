@@ -1,0 +1,17 @@
+# Overlay for running this stack on the dedicated hub_multiregistator network.
+# The unique DB hostname avoids ambiguous "db" aliases if the network is shared.
+services:
+  migrate:
+    environment:
+      DB_HOST: multiregistrator-db
+  web:
+    environment:
+      DB_HOST: multiregistrator-db
+  poller:
+    environment:
+      DB_HOST: multiregistrator-db
+
+networks:
+  default:
+    name: hub_multiregistator
+    external: true
